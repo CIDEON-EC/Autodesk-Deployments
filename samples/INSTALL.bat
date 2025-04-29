@@ -1,7 +1,7 @@
 @ECHO OFF
-skript="\\SERVER\SHARE\ScriptLocation\WIM-AppDeploy.ps1"
-wim="20XX_PDC_VLT"
-wimpath="\\SERVER\SHARE\DEPLOYMENT"
+set skript=\\SERVER\SHARE\ScriptLocation\WIM-AppDeploy.ps1
+set wim=20XX_PDC_VLT
+set wimpath=\\SERVER\SHARE\DEPLOYMENT
 
 powershell.exe -ExecutionPolicy Bypass %skript% -WIM %wim% -Mode "Install" -Path %wimpath% -Logging -Purge
 

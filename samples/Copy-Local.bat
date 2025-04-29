@@ -1,5 +1,5 @@
 @ECHO OFF
-skript="\\vaultsrv\CIDEON\_DPL\Copy-Local.ps1"
+set skript=\\vaultsrv\CIDEON\_DPL\Copy-Local.ps1
 
 powershell.exe -ExecutionPolicy Bypass %skript% -Path "\\vaultsrv\CIDEON\_DPL" -Folder "Users"
 

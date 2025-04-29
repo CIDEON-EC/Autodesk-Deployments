@@ -1,7 +1,7 @@
 @ECHO OFF
-skript="\\SERVER\SHARE\DEPLOYMENT\WIM-handler.ps1"
-wim="20XX_PDC_VLT"
-wimpath="\\SERVER\SHARE\DEPLOYMENT"
+set skript=\\SERVER\SHARE\ScriptLocation\WIM-handler.ps1
+set wim=20XX_PDC_VLT
+set wimpath=\\SERVER\SHARE\DEPLOYMENT
 
 powershell.exe -ExecutionPolicy Bypass %skript% -WIM %wim% -Mode "Dismount" -Path %wimpath%
 
