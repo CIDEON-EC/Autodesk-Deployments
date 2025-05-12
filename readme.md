@@ -20,12 +20,15 @@ The folder structure is based on the default Autodesk deployments. This could be
 ├──  PDC_20XX                   (name of the Autodesk deployment)
 │   ├── image                   (default from Autodesk deployment)
 │   │   ├── AMECH_PP_20XX_de-DE
+│   │   |    ├── ...
+│   │   |    ├── setup.xml      (contains product to install)
+│   │   |    └── setup_ext.xml  (contains updates and language packs)
 │   │   ├── INVPROSA_20XX_de-DE
 │   │   ├── ...
 │   │   ├── Collection.xml
-│   │   ├── Inventor_only.xml   (reduced from Collection.xml)
+│   │   ├── Inventor_only.xml   (modified version of Collection.xml)
 │   │   └── ...
-│   ├── Updates                 (updates to install)
+│   ├── Updates                 (additionally updates to install)
 │   │   ├── Update_Inventor_20XX.X.exe
 │   │   └── Update_AutoCAD_20XX.X.exe
 │   ├── Cideon                  (Cideon Tools)
@@ -34,8 +37,16 @@ The folder structure is based on the default Autodesk deployments. This could be
 │   │   └── CDN_DataStandards_Setup_XXXX.X.X.XXXXX.msi
 │   └── Local                   (local configuration files)
 │       ├── ProgramData
-│       ├── Users
-│       └── Public
+│       └── Users
+│           ├── Public          (Public user folder)
+│           │   └── Documents
+│           │       └── CIDEON
+│           │           └── LicenseFiles
+│           │               └── 20XX
+│           └── USERNAME        (local user folder, will be renamed to the actual username)
+│               └── AppData
+│                    └── Roaming
+│                        └── Autodesk
 └── WIM-handler.ps1
 ```
 ## Create a WIM
