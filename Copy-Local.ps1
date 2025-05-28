@@ -103,33 +103,39 @@ function Copy-Local {
                 # for every subfolder in Users
                 foreach ($userFolder in $UsersFolder) {
                     # check folder USERNAME, this is the folder for the current user
-                    if ($userFolder.Name -eq "USERNAME") {$subfolder = $env:Username}
+                    if ($userFolder.Name -eq "USERNAME") { $subfolder = $env:Username }
                     # if not USERNAME, use the folder name, e.g. "Public"
-                    else {$subfolder = $userFolder.Name}
+                    else { $subfolder = $userFolder.Name }
 
                     # copy the content of the user folder to the target folder
-                    Copy-Item -Path ([System.IO.Path]::Combine($userFolder.FullName, "*")) -Destination ([System.IO.Path]::Combine($($TargetFolder[$($SourceFolder.IndexOf($Source))]), "Users", $subfolder)) -Force -Recurse
+                    $from = ([System.IO.Path]::Combine($userFolder.FullName, "*"))
+                    $to = ([System.IO.Path]::Combine($($TargetFolder[$($SourceFolder.IndexOf($Source))]), "Users", $subfolder))
+                    Copy-Item -Path $from -Destination $to -Force -Recurse
+                    Write-InstallLog -text "Copy-Local copied from $($from) to $($to)" -Info
                 }
             }
             # normal case for ProgramData and other folders
             else {
                 $localpath = [System.IO.Path]::Combine($Path, "Local", $Source)
-                Copy-Item -Path $localpath -Destination ([System.IO.Path]::Combine($($TargetFolder[$($SourceFolder.IndexOf($Source))]))) -Force -Recurse
+                $from = $localpath
+                $to = ([System.IO.Path]::Combine($($TargetFolder[$($SourceFolder.IndexOf($Source))])))
+                Copy-Item -Path $from -Destination $to -Force -Recurse
+                Write-InstallLog -text "Copy-Local copied from $($from) to $($to)" -Info
             }
         }
+        
 
     }
   
 
     catch {
-        #Write-Log -text "CIDEON Tools Error for Path: $($Source)" -Fail
+        Write-InstallLog -text "Copy-Local Error for Path: $($Source)" -Fail
     }
 
 
-    
 }
 function Set-AutodeskUpdate {
-    
+
     <#
     .SYNOPSIS
         Sets the Autodesk update settings in the registry.
