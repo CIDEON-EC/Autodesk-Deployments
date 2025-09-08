@@ -4,7 +4,7 @@
 
 .NOTES
     Author: Timon Först
-    Version: 1.0.1
+    Version: 1.0.2
 
 .DESCRIPTION
     Automation of downloading a wim file to a temporary local folder. After
