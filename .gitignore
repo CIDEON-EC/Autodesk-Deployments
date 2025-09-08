@@ -1,0 +1,48 @@
+# Test and development files
+WIM-AppDeploy_TEST.ps1
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# PowerShell
+*.ps1.bak
+*.ps1.orig
+*.ps1.temp
+
+# Logs
+*.log
+*.txt.log
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# IDE/Editor files
+.vs/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Test files and local development
+test/
+local/
+temp/
+*.wim
+mount_*/
+
+# Personal notes and drafts
+notes.txt
+draft.*
+TODO.md

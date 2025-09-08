@@ -1,0 +1,188 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🔎 Analyze PowerShell Scripts",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName }"
+      ],
+      "problemMatcher": [],
+      "detail": "Fürt den Invoke-ScriptAnalyzer für alle PowerShell-Skripte im Projekt aus",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "🔧 Bump Patch Version",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        ".\\Manage-Version.ps1 -Action bump-patch"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": [],
+      "detail": "Erhöht die Patch-Version (z.B. 1.0.0 → 1.0.1) für Bug-Fixes"
+    },
+    {
+      "label": "⚡ Bump Minor Version",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        ".\\Manage-Version.ps1 -Action bump-minor"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": [],
+      "detail": "Erhöht die Minor-Version (z.B. 1.0.0 → 1.1.0) für neue Features"
+    },
+    {
+      "label": "🚀 Bump Major Version",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        ".\\Manage-Version.ps1 -Action bump-major"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": [],
+      "detail": "Erhöht die Major-Version (z.B. 1.0.0 → 2.0.0) für Breaking Changes"
+    },
+    {
+      "label": "📋 Show Current Version",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        ".\\Manage-Version.ps1 -Action show"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": [],
+      "detail": "Zeigt die aktuelle Version an"
+    },
+    {
+      "label": "📦 Commit and Push Version",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "$version = Get-Content VERSION.txt; git add .; git commit -m \"Bump version to $version\"; git push"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": [],
+      "detail": "Committet und pushed die Versionsänderungen (triggert automatisch GitHub Release)"
+    },
+    {
+      "label": "🔄 Complete Version Bump (Patch)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "🔧 Bump Patch Version",
+        "📦 Commit and Push Version"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "detail": "Vollständiger Workflow: Patch-Version erhöhen → committen → pushen → GitHub Release"
+    },
+    {
+      "label": "🔄 Complete Version Bump (Minor)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "⚡ Bump Minor Version",
+        "📦 Commit and Push Version"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "detail": "Vollständiger Workflow: Minor-Version erhöhen → committen → pushen → GitHub Release"
+    },
+    {
+      "label": "🔄 Complete Version Bump (Major)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "🚀 Bump Major Version",
+        "📦 Commit and Push Version"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "detail": "Vollständiger Workflow: Major-Version erhöhen → committen → pushen → GitHub Release"
+    }
+  ]
+}
