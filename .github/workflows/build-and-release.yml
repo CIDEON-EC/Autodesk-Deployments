@@ -1,0 +1,114 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Extract version from tag
+      id: version
+      run: |
+        TAG_NAME="${{ github.ref_name }}"
+        # Remove 'v' prefix to get clean version (e.g., v1.2.3 -> 1.2.3)
+        VERSION="${TAG_NAME#v}"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+
+        # Check if this is a prerelease (contains alpha, beta, rc, etc.)
+        if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+        else
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+        fi
+
+        echo "Extracted version: $VERSION"
+        echo "Is prerelease: $(grep prerelease $GITHUB_OUTPUT | cut -d= -f2)"
+
+    - name: Update version in Install-ADSK.ps1
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        # Update the Version line in the .NOTES section
+        sed -i "s/Version: [0-9.]*$/Version: $VERSION/" Install-ADSK.ps1
+        echo "Updated Install-ADSK.ps1 version to $VERSION"
+        # Verify the update
+        grep "Version:" Install-ADSK.ps1 | head -1
+
+    - name: Create deployment package
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        PACKAGE_NAME="Autodesk-Deployment-$VERSION"
+
+        # Create directory for deployment package
+        mkdir -p "$PACKAGE_NAME"
+
+        # Copy deployment files
+        cp Install-ADSK.ps1 "$PACKAGE_NAME/"
+        cp Copy-Local.ps1 "$PACKAGE_NAME/"
+        cp readme.md "$PACKAGE_NAME/"
+        cp CHANGELOG.md "$PACKAGE_NAME/" 2>/dev/null || true
+        cp -r samples "$PACKAGE_NAME/"
+
+        # Create ZIP archive
+        zip -r "${PACKAGE_NAME}.zip" "$PACKAGE_NAME"
+        echo "Created deployment package: ${PACKAGE_NAME}.zip"
+        ls -lh "${PACKAGE_NAME}.zip"
+
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        {
+          echo "## Autodesk Deployment Tools $VERSION"
+          echo ""
+          echo "### 📦 Package Contents"
+          echo "- **Install-ADSK.ps1** - Main installation script for Autodesk products"
+          echo "- **Copy-Local.ps1** - Local file copy script for configuration"
+          echo "- **readme.md** - Detailed documentation and workflow guide"
+          echo "- **samples/** - Sample batch files for automated deployment"
+          echo "- **CHANGELOG.md** - Version history and changes"
+          echo ""
+          echo "### 🔄 Release Information"
+          echo "**Tag:** \`${{ steps.version.outputs.tag }}\`"
+          echo "**Version:** \`$VERSION\`"
+          echo ""
+          echo "For detailed information and instructions, see the included readme.md"
+        } > release_notes.md
+
+        echo "Generated release notes:"
+        cat release_notes.md
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: Autodesk Deployment Tools ${{ steps.version.outputs.version }}
+        body_path: release_notes.md
+        files: |
+          Autodesk-Deployment-${{ steps.version.outputs.version }}.zip
+        draft: false
+        prerelease: ${{ steps.version.outputs.prerelease }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cleanup
+      if: always()
+      run: |
+        rm -rf "Autodesk-Deployment-${{ steps.version.outputs.version }}" 2>/dev/null || true
+        rm -f "Autodesk-Deployment-${{ steps.version.outputs.version }}.zip" 2>/dev/null || true
+        rm -f release_notes.md 2>/dev/null || true

@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+set -eu
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT_PATH="$REPO_ROOT/.scripts/Test-StagedPowerShell.ps1"
+
+if command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$SCRIPT_PATH"
+elif command -v powershell >/dev/null 2>&1; then
+  powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$SCRIPT_PATH"
+else
+  echo "PowerShell executable not found (pwsh/powershell). Commit blocked."
+  exit 1
+fi

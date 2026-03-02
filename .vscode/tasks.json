@@ -26,13 +26,13 @@
       }
     },
     {
-      "label": "🔧 Bump Patch Version",
+      "label": "🔧 Create Patch Release Tag",
       "type": "shell",
       "command": "pwsh",
       "args": [
         "-NoProfile",
         "-Command",
-        ".\\Manage-Version.ps1 -Action bump-patch"
+        "$current = (git describe --tags --abbrev=0 2>/dev/null).TrimStart('v'); if (-not $current) { $current = '0.0.0' }; $parts = $current -split '\\.'; $patch = [int]$parts[2] + 1; $newVersion = \"$($parts[0]).$($parts[1]).$patch\"; $tagName = \"v$newVersion\"; Write-Host \"Creating tag: $tagName\"; git tag -a \"$tagName\" -m \"Release version $newVersion\"; Write-Host \"Tag created successfully: $tagName\""
       ],
       "group": {
         "kind": "build",
@@ -41,22 +41,22 @@
       "presentation": {
         "echo": true,
         "reveal": "always",
-        "focus": false,
+        "focus": true,
         "panel": "shared",
         "showReuseMessage": true,
         "clear": false
       },
       "problemMatcher": [],
-      "detail": "Erhöht die Patch-Version (z.B. 1.0.0 → 1.0.1) für Bug-Fixes"
+      "detail": "Erstellt einen neuen Patch-Release-Tag (z.B. v1.0.0 → v1.0.1 für Bug-Fixes)"
     },
     {
-      "label": "⚡ Bump Minor Version",
+      "label": "⚡ Create Minor Release Tag",
       "type": "shell",
       "command": "pwsh",
       "args": [
         "-NoProfile",
         "-Command",
-        ".\\Manage-Version.ps1 -Action bump-minor"
+        "$current = (git describe --tags --abbrev=0 2>/dev/null).TrimStart('v'); if (-not $current) { $current = '0.0.0' }; $parts = $current -split '\\.'; $minor = [int]$parts[1] + 1; $newVersion = \"$($parts[0]).$minor.0\"; $tagName = \"v$newVersion\"; Write-Host \"Creating tag: $tagName\"; git tag -a \"$tagName\" -m \"Release version $newVersion\"; Write-Host \"Tag created successfully: $tagName\""
       ],
       "group": {
         "kind": "build",
@@ -65,22 +65,22 @@
       "presentation": {
         "echo": true,
         "reveal": "always",
-        "focus": false,
+        "focus": true,
         "panel": "shared",
         "showReuseMessage": true,
         "clear": false
       },
       "problemMatcher": [],
-      "detail": "Erhöht die Minor-Version (z.B. 1.0.0 → 1.1.0) für neue Features"
+      "detail": "Erstellt einen neuen Minor-Release-Tag (z.B. v1.0.0 → v1.1.0 für neue Features)"
     },
     {
-      "label": "🚀 Bump Major Version",
+      "label": "🚀 Create Major Release Tag",
       "type": "shell",
       "command": "pwsh",
       "args": [
         "-NoProfile",
         "-Command",
-        ".\\Manage-Version.ps1 -Action bump-major"
+        "$current = (git describe --tags --abbrev=0 2>/dev/null).TrimStart('v'); if (-not $current) { $current = '0.0.0' }; $parts = $current -split '\\.'; $major = [int]$parts[0] + 1; $newVersion = \"$major.0.0\"; $tagName = \"v$newVersion\"; Write-Host \"Creating tag: $tagName\"; git tag -a \"$tagName\" -m \"Release version $newVersion\"; Write-Host \"Tag created successfully: $tagName\""
       ],
       "group": {
         "kind": "build",
@@ -89,22 +89,22 @@
       "presentation": {
         "echo": true,
         "reveal": "always",
-        "focus": false,
+        "focus": true,
         "panel": "shared",
         "showReuseMessage": true,
         "clear": false
       },
       "problemMatcher": [],
-      "detail": "Erhöht die Major-Version (z.B. 1.0.0 → 2.0.0) für Breaking Changes"
+      "detail": "Erstellt einen neuen Major-Release-Tag (z.B. v1.0.0 → v2.0.0 für Breaking Changes)"
     },
     {
-      "label": "📋 Show Current Version",
+      "label": "📋 Show Latest Tag",
       "type": "shell",
       "command": "pwsh",
       "args": [
         "-NoProfile",
         "-Command",
-        ".\\Manage-Version.ps1 -Action show"
+        "$tag = git describe --tags --abbrev=0 2>/dev/null; if ($tag) { Write-Host \"Latest tag: $tag\" } else { Write-Host \"No tags found\" }"
       ],
       "group": {
         "kind": "test",
@@ -119,16 +119,16 @@
         "clear": false
       },
       "problemMatcher": [],
-      "detail": "Zeigt die aktuelle Version an"
+      "detail": "Zeigt den neuesten Git-Tag an"
     },
     {
-      "label": "📦 Commit and Push Version",
+      "label": "🚢 Push Tags to Remote",
       "type": "shell",
       "command": "pwsh",
       "args": [
         "-NoProfile",
         "-Command",
-        "$version = Get-Content VERSION.txt; git add .; git commit -m \"Bump version to $version\"; git push"
+        "Write-Host 'Pushing tags to remote...'; git push origin --tags; Write-Host 'Tags pushed successfully!'"
       ],
       "group": {
         "kind": "build",
@@ -143,46 +143,46 @@
         "clear": false
       },
       "problemMatcher": [],
-      "detail": "Committet und pushed die Versionsänderungen (triggert automatisch GitHub Release)"
+      "detail": "Pushed alle Tags zu Remote (triggert automatisch GitHub Release Workflow)"
     },
     {
-      "label": "🔄 Complete Version Bump (Patch)",
+      "label": "🔄 Complete Release (Patch)",
       "dependsOrder": "sequence",
       "dependsOn": [
-        "🔧 Bump Patch Version",
-        "📦 Commit and Push Version"
+        "🔧 Create Patch Release Tag",
+        "🚢 Push Tags to Remote"
       ],
       "group": {
         "kind": "build",
         "isDefault": false
       },
-      "detail": "Vollständiger Workflow: Patch-Version erhöhen → committen → pushen → GitHub Release"
+      "detail": "Vollständiger Workflow: Patch-Release-Tag erstellen → Commits stagen → zu Remote pushen → GitHub Release"
     },
     {
-      "label": "🔄 Complete Version Bump (Minor)",
+      "label": "🔄 Complete Release (Minor)",
       "dependsOrder": "sequence",
       "dependsOn": [
-        "⚡ Bump Minor Version",
-        "📦 Commit and Push Version"
+        "⚡ Create Minor Release Tag",
+        "🚢 Push Tags to Remote"
       ],
       "group": {
         "kind": "build",
         "isDefault": false
       },
-      "detail": "Vollständiger Workflow: Minor-Version erhöhen → committen → pushen → GitHub Release"
+      "detail": "Vollständiger Workflow: Minor-Release-Tag erstellen → Commits stagen → zu Remote pushen → GitHub Release"
     },
     {
-      "label": "🔄 Complete Version Bump (Major)",
+      "label": "🔄 Complete Release (Major)",
       "dependsOrder": "sequence",
       "dependsOn": [
-        "🚀 Bump Major Version",
-        "📦 Commit and Push Version"
+        "🚀 Create Major Release Tag",
+        "🚢 Push Tags to Remote"
       ],
       "group": {
         "kind": "build",
         "isDefault": false
       },
-      "detail": "Vollständiger Workflow: Major-Version erhöhen → committen → pushen → GitHub Release"
+      "detail": "Vollständiger Workflow: Major-Release-Tag erstellen → Commits stagen → zu Remote pushen → GitHub Release"
     }
   ]
 }
