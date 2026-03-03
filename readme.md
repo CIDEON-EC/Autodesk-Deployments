@@ -106,10 +106,12 @@ The folder structure is based on the default Autodesk deployments. This could lo
 │
 ├── 📁 Updates/                                # Additional updates
 │   ├── 🔧 Update_Inventor_20XX.X.exe
-│   └── 🔧 Update_AutoCAD_20XX.X.exe
+│   ├── 🔧 Update_AutoCAD_20XX.X.exe
+│   └── 🔧 cer.msi
 │
 ├── 📁 Cideon/                                 # Cideon Tools
 │   ├── 📦 CIDEON.VAULT.TOOLBOX.SETUP_XXXX.X.X.XXXXX.msi
+│   ├── 📦 CIDEON.VAULT.TOOLBOX.SETUP.SERVICEPACK_XXXX.X.X.XXXXX.msi
 │   ├── 📦 CIDEON.Inventor.Toolbox_x64_XXXX.X.X.XXXXX.msi
 │   └── 📦 CDN_DataStandards_Setup_XXXX.X.X.XXXXX.msi
 │

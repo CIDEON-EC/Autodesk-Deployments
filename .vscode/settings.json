@@ -33,7 +33,7 @@
     "powershell.codeFormatting.useCorrectCasing": true,
     "powershell.codeFormatting.whitespaceBetweenParameters": true,
     "powershell.scriptAnalysis.enable": true,
-    "powershell.scriptAnalysis.settingsPath": "scripts/PSScriptAnalyzerSettings.psd1",
+    "powershell.scriptAnalysis.settingsPath": ".scripts/PSScriptAnalyzerSettings.psd1",
     "telemetry.feedback.enabled": false,
     "telemetry.editStats.enabled": false,
     "VsCodeTaskButtons.tasks": [

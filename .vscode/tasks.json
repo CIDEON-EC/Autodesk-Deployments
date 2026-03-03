@@ -10,7 +10,7 @@
       "args": [
         "-NoProfile",
         "-Command",
-        "Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName }"
+        "Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName -Settings ./.scripts/PSScriptAnalyzerSettings.psd1 }"
       ],
       "problemMatcher": [],
       "detail": "Fürt den Invoke-ScriptAnalyzer für alle PowerShell-Skripte im Projekt aus",
@@ -24,6 +24,30 @@
         "focus": false,
         "panel": "shared"
       }
+    },
+    {
+      "label": "PowerShell: Check active file",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/.scripts/Test-StagedPowerShell.ps1",
+        "-Path",
+        "${file}",
+        "-NoBlock"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "close": true
+      },
+      "problemMatcher": []
     },
     {
       "label": "🔧 Create Patch Release Tag",
