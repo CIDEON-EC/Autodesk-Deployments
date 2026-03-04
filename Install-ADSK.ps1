@@ -255,6 +255,7 @@ function Get-CachedFiles {
         Autor: Timon Först
     #>
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param (
         [Parameter(Mandatory)]
         [string]$Path,
@@ -330,8 +331,10 @@ function Install-Update {
 
     foreach ($file in $files) {
         $executable = $file.FullName
+        $updateLogFile = $script:LogFile
         if ($file.Name -like '*msi') {
-            $arguments = "/i ""$($file.FullName)"" /qn /norestart /l*v ""$script:LogFile"""
+            $updateLogFile = [System.IO.Path]::Combine($LocalFolder, "Install_Autodesk_$Version`_$([System.IO.Path]::GetFileNameWithoutExtension($file.Name)).log")
+            $arguments = "/i ""$($file.FullName)"" /qn /norestart /l*v ""$updateLogFile"""
             $executable = 'msiexec.exe'
         }
         elseif ($file.Name -like '*Licensing*exe') {
@@ -356,7 +359,7 @@ function Install-Update {
                     Write-InstallLog -text "Successfully installed update: $($file.Name)" -Info
                 }
                 else {
-                    Write-InstallLog -text "Update installation failed for $($file.Name) with exit code: $($process.ExitCode). Check log file: $script:LogFile" -Fail
+                    Write-InstallLog -text "Update installation failed for $($file.Name) with exit code: $($process.ExitCode). Check log file: $updateLogFile" -Fail
                 }
             }
         }
@@ -396,9 +399,56 @@ function Install-AutodeskDeployment {
     # Start-Process -NoNewWindow -FilePath $Path\Install.cmd -Wait
     foreach ($ConfigFullFilename in $ConfigFullFilenames) {
         Write-InstallLog -text "Started Installation of ConfigFile: $ConfigFullFilename" -Info
+        $configName = Split-Path $ConfigFullFilename -Leaf
+        $deploymentLogPath = [System.IO.Path]::Combine($LocalFolder, "Install-ADSK-Deplyoment-$($WIM).log")
+
+        if (-not (Test-Path -Path $ConfigFullFilename -PathType Leaf)) {
+            Write-InstallLog -text "Config file not found: $ConfigFullFilename" -Fail
+            continue
+        }
+
+        # enfore logging settings for deployment installere
+        try {
+            # Load selected deployment XML
+            [xml]$configXml = Get-Content -Path $ConfigFullFilename -ErrorAction Stop
+            if (-not $configXml.Collection) {
+                throw "Missing root node 'Collection' in config file: $ConfigFullFilename"
+            }
+
+            # Ensure required LoggingSettings structure exists
+            if (-not $configXml.Collection.LoggingSettings) {
+                $loggingSettingsNode = $configXml.CreateElement('LoggingSettings')
+                [void]$configXml.Collection.AppendChild($loggingSettingsNode)
+            }
+
+            if (-not $configXml.Collection.LoggingSettings.Logging) {
+                $loggingNode = $configXml.CreateElement('Logging')
+                [void]$configXml.Collection.LoggingSettings.AppendChild($loggingNode)
+            }
+
+            if (-not $configXml.Collection.LoggingSettings.Path) {
+                $pathNode = $configXml.CreateElement('Path')
+                [void]$configXml.Collection.LoggingSettings.AppendChild($pathNode)
+            }
+
+            # Enforce logging defaults for deployment installer
+            $configXml.Collection.LoggingSettings.Logging = 'true'
+            $configXml.Collection.LoggingSettings.Path = $deploymentLogPath
+
+            if ($PSCmdlet.ShouldProcess($configName, 'Update LoggingSettings in deployment config')) {
+                # Persist XML changes before running Installer.exe
+                $configXml.Save($ConfigFullFilename)
+                Write-InstallLog -text "Updated LoggingSettings in config file: $ConfigFullFilename" -Info
+            }
+        }
+        catch {
+            Write-InstallLog -text "Failed to update LoggingSettings for config file $ConfigFullFilename. Error: $($_.Exception.Message)" -Fail
+            continue
+        }
+
         $installerPath = [System.IO.Path]::Combine($Path, 'Image', 'Installer.exe')
         $installerArgs = "-i deploy --offline_mode -q -o $ConfigFullFilename"
-        if ($PSCmdlet.ShouldProcess((Split-Path $ConfigFullFilename -Leaf), "Install Autodesk Deployment with arguments: $installerArgs")) {
+        if ($PSCmdlet.ShouldProcess($configName, "Install Autodesk Deployment with arguments: $installerArgs")) {
             Start-Process -FilePath $installerPath -ArgumentList $installerArgs -PassThru | Out-Null
             # Waiting
             Wait-Process -Name 'Installer'
@@ -1411,6 +1461,7 @@ function Rename-RegistryInstallationPath {
         Datum: 16.04.2025
    #>
     [CmdletBinding(SupportsShouldProcess = $true)]
+    param ()
 
     # if your repair the autodesk software, it will look localy to the wim
     # we change this to the serverpath
@@ -1421,16 +1472,19 @@ function Rename-RegistryInstallationPath {
 
     Write-InstallLog -text 'Reg Change' -Info
 
-    foreach ($a in $Registry) {
-        $a.Property | Where-Object {
-            $a.GetValue($_) -like "*$SearchQuery*"
-        } | ForEach-Object {
-            $CurrentValue = $a.GetValue($_)
-            $ReplacedValue = $CurrentValue.Replace($SearchQuery, $NewValue)
-            Write-InstallLog -text "$a\$_" -Info
-            Write-InstallLog -text "From '$CurrentValue' to '$ReplacedValue'" -Info
-            if ($PSCmdlet.ShouldProcess($a, 'Update registry path')) {
-                Set-ItemProperty -Path Registry::$a -Name $_ -Value $ReplacedValue
+    foreach ($registryItem in $Registry) {
+        foreach ($propertyName in $registryItem.Property) {
+            $currentValue = $registryItem.GetValue($propertyName)
+            if ($currentValue -notlike "*$SearchQuery*") {
+                continue
+            }
+
+            $replacedValue = $currentValue.Replace($SearchQuery, $NewValue)
+            Write-InstallLog -text "$registryItem\$propertyName" -Info
+            Write-InstallLog -text "From '$currentValue' to '$replacedValue'" -Info
+
+            if ($PSCmdlet.ShouldProcess($registryItem.PSPath, 'Update registry path')) {
+                Set-ItemProperty -Path $registryItem.PSPath -Name $propertyName -Value $replacedValue
             }
         }
     }
@@ -1901,7 +1955,7 @@ if ([String]::IsNullOrEmpty($Version) -or $Version.Length -ne 4) {
 
 $DebugPreference = 'SilentlyContinue'
 # local logfile
-$logfile = "Install_Autodesk_$($Version).log"
+$logfile = "Install-ADSK-$($Version).log"
 $script:LogFile = [System.IO.Path]::Combine($LocalFolder, $logfile)
 
 #create local path

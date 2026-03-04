@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-03-04
+### Changed
+- Updated readme
+- Logfile from Install-ADSK renamed to Install-ADSK-20xx.log
+- `Install-AutodeskDeployment` now enforces `LoggingSettings` in selected deployment XML files before installer start (`-Files` selection): `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deplyoment-<WIM>.log`
+
+### Fixed
+- Improved `WhatIf` output in `Install-CideonTool` for `CIDEON.VAULT.TOOLBOX*.msi` by adding explicit `ADDLOCAL` feature context in the `ShouldProcess` action text (also for service packs)
+- Adjusted MSI update logging in `Install-Update` to write to a dedicated per-file log (`<mainlog>_<msi-name>.log`), keeping the main script log independent
+
 ## [1.1.1] - 2026-03-04
 ### Changed
 - Refactored `Install-CideonTool` for a simpler, direct execution flow with inline argument construction and direct `ShouldProcess`-guarded install calls

@@ -180,7 +180,7 @@ REM powershell.exe -ExecutionPolicy Bypass %skript% -Path "\\vaultsrv\CIDEON\_DP
 <br><br><br>
 
 ### What are the parameters for the Install-ADSK.ps1?
-You can find this in the file itself, but here is a overview.
+You can find this in the file itself, but here is an overview.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -188,11 +188,13 @@ You can find this in the file itself, but here is a overview.
 | **Mode** | String | ✅ | - | Mode to execute: `Install`, `Uninstall`, `Update` |
 | **Path** | String | ❌ | Script location | Path to the WIM file. Not needed if WIM is in same folder as script |
 | **LocalFolder** | String | ❌ | `C:\Temp` | Local folder where WIM file should be downloaded and mapped |
-| **Files** | String Array | ❌ | `@("Collection")` | XML filenames WITHOUT extension for installation |
+| **Files** | String Array | ❌ | `@("Collection")` | XML filenames WITHOUT extension for installation. Before each install, `LoggingSettings` in the selected XML is enforced to `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deplyoment-<WIM>.log` |
 | **Version** | String | ❌ | Auto-extracted | Software version for Cideon tools and logging |
 | **Logging** | Switch | ❌ | `$false` | Enable log file creation in local folder |
 | **NoDownload** | Switch | ❌ | `$false` | Mount WIM from server instead of copying locally |
-| **Purge** | Switch | ❌ | `$false` | Delete WIM file after completion (not with NoDownload) |
+| **Purge** | Switch | ❌ | `$false` | Delete WIM file after completion (cannot be combined with `-NoDownload`) |
+| **WhatIf** | Switch | ❌ | `$false` | Dry run mode: shows what would happen without making changes |
+| **Confirm** | Switch | ❌ | `$false` | Prompts for confirmation before executing actions |
 <br><br><br>
 
 ### How can I call the Install-ADSK?
@@ -200,18 +202,30 @@ You can find this in the file itself, but here is a overview.
 # Go to the script location
 cd \\SERVER\SHARE\ScriptLocation
 # Call Installation
-## Path is needed because the deplyoment is stored on another location
+## Path is needed because the deployment is stored on another location
 ## Logging enabled
-## Purge enabled (deletes WIM localy)
+## Purge enabled (deletes WIM locally)
 .\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging -Purge
 ```
 ```powershell
 # Call Installation
-## Path is not needed, because Install-ADSK.ps1 is parallel to the deplyoment folder
+## Path is not needed, because Install-ADSK.ps1 is parallel to the deployment folder
 ## Logging enabled
-## The wim will not downloaded, it will be mounted from the server directly (slower installation)
+## The WIM will not be downloaded, it will be mounted from the server directly (slower installation)
 ### Instead of default Collection.xml, the Inventor_only.xml is used
 .\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Logging -NoDownload -Files "Inventor_only"
+```
+```powershell
+# Dry run (preview all actions)
+.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -WhatIf
+```
+```powershell
+# Uninstall mode
+.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Uninstall" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
+```
+```powershell
+# Update mode
+.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Update" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
 ```
 
 ## Function Reference
@@ -221,6 +235,8 @@ cd \\SERVER\SHARE\ScriptLocation
 | Function | Description | Required Parameters | Optional Parameters |
 |----------|-------------|-------------------|-------------------|
 | **Write-InstallLog** | Writes log entries to file (if logging enabled) | `text` | `Info`, `Fail` |
+| **Update-WIMInspectionCache** | Inspects and caches WIM folder/file metadata for later use | `MountedPath` | - |
+| **Get-CachedFiles** | Returns cached file-like entries for WhatIf scenarios | `Path`, `OperationText` | `CachedFiles` |
 | **Install-Update** | Installs updates from Updates subfolder | - | `Path` |
 | **Install-AutodeskDeployment** | Installs Autodesk deployment from Image subfolder | - | `Path` |
 | **Uninstall-AutodeskDeployment** | Uninstalls Autodesk deployment | - | `Path`, `Product` |
@@ -252,6 +268,9 @@ cd \\SERVER\SHARE\ScriptLocation
 
 #### **WIM Management**
 - `Get-WIM`, `Mount-WIM`, `Dismount-WIM`, `Register-WIMDismountTask`
+
+#### **WIM Inspection & Simulation**
+- `Update-WIMInspectionCache`, `Get-CachedFiles`
 
 #### **System Configuration**
 - `Set-InventorProjectFile`, `Set-AutodeskUpdate`, `Disable-VaultExtension`
