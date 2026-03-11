@@ -1,5 +1,4 @@
 # Test and development files
-WIM-AppDeploy_TEST.ps1
 
 # Windows
 Thumbs.db
@@ -46,3 +45,8 @@ mount_*/
 notes.txt
 draft.*
 TODO.md
+
+# certificate files
+*.pfx
+*.p12
+*.key
