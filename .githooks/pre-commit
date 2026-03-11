@@ -2,13 +2,17 @@
 set -eu
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-SCRIPT_PATH="$REPO_ROOT/.scripts/Test-StagedPowerShell.ps1"
+ANALYZER_SCRIPT="$REPO_ROOT/.scripts/Test-StagedPowerShell.ps1"
+PESTER_SCRIPT="$REPO_ROOT/.scripts/Invoke-PesterTests.ps1"
 
 if command -v pwsh >/dev/null 2>&1; then
-  pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$SCRIPT_PATH"
+  PWSH_EXE="pwsh"
 elif command -v powershell >/dev/null 2>&1; then
-  powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$SCRIPT_PATH"
+  PWSH_EXE="powershell"
 else
   echo "PowerShell executable not found (pwsh/powershell). Commit blocked."
   exit 1
 fi
+
+"$PWSH_EXE" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ANALYZER_SCRIPT"
+"$PWSH_EXE" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PESTER_SCRIPT"

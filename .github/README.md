@@ -8,7 +8,9 @@ Das Repository verwendet einen **tag-basierten Release-Flow**. Releases werden d
 
 - ✅ GitHub Release mit angepasstem Release-Namen
 - ✅ ZIP-Asset mit produktiven Dateien
-- ✅ Automatische Versions-Updates in Skriptdateien
+- ✅ Ungezippte Release-Assets für das signierte Modul (`CIDEON.AutodeskDeployment.psm1`) und Zertifikat (`CIDEON-CodeSigning.cer`)
+- ✅ Automatische Versions-Updates in Skriptdateien und Moduldatei
+- ✅ Code-Signing der Moduldatei im Workflow
 - ✅ Unterstützung für Pre-Releases (z.B. `-beta`, `-rc`)
 
 ## 📋 Release-Workflow
@@ -89,15 +91,18 @@ Die folgenden Compound-Tasks führen beide Schritte in Folge aus:
 Wenn Sie einen Tag mit dem Muster `v*` pushen, triggert der Workflow `.github/workflows/build-and-release.yml`:
 
 1. **Tag analysieren**: Die Version wird aus dem Tag-Namen extrahiert
-2. **Skripte aktualisieren**: `Install-ADSK.ps1` erhält die aktuelle Version
-3. **Deployment-Paket erstellen**: ZIP-Datei mit folgenden Dateien:
+2. **Versionen aktualisieren**: `Install-ADSK.ps1` und `CIDEON.AutodeskDeployment.psm1` erhalten die aktuelle Version (`vX.Y.Z` → `X.Y.Z`)
+3. **Modul signieren**: `CIDEON.AutodeskDeployment.psm1` wird über hinterlegte GitHub Secrets signiert und validiert
+4. **Deployment-Paket erstellen**: ZIP-Datei mit folgenden Dateien:
    - `Install-ADSK.ps1`
    - `Copy-Local.ps1`
+   - `CIDEON.AutodeskDeployment.psm1`
+   - `CIDEON-CodeSigning.cer`
    - `readme.md`
    - `CHANGELOG.md` (optional)
    - `samples/` (kompletter Ordner)
-4. **GitHub Release erstellen**: Mit Tag-Name, automatischer Versionsnummer und Asset-Upload
-5. **Pre-Release kennzeichnen**: Automatisch erkannt (z.B. `-beta`, `-rc`, `-alpha`)
+5. **GitHub Release erstellen**: Mit Tag-Name, automatischer Versionsnummer und Asset-Upload
+6. **Pre-Release kennzeichnen**: Automatisch erkannt (z.B. `-beta`, `-rc`, `-alpha`)
 
 ## 📝 Tag-Namenskonventionen
 
@@ -133,6 +138,12 @@ Der alte Workflow in `.github/workflows/release.yml` ist **DEPRECATED** und wird
 Jedes Release erhält ein ZIP-Archiv mit dem Namen:
 ```
 Autodesk-Deployment-<VERSION>.zip
+```
+
+Zusätzlich enthält jedes Release die ungezippte Moduldatei und das Zertifikat:
+```
+CIDEON.AutodeskDeployment.psm1
+CIDEON-CodeSigning.cer
 ```
 
 **Beispiel:** Für Tag `v1.0.5` wird erstellt:
@@ -185,7 +196,7 @@ In GitHub:
 
 2. [Lokal / VS Code] Patch-Release vorbereiten
    Task: "🔄 Complete Release (Minor)"
-   
+
 3. [Lokal / Git] Tag wird erstellt und gepusht
    git tag -a v1.1.0 -m "Release version 1.1.0"
    git push origin v1.1.0
