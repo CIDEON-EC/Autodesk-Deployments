@@ -5,15 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-beta.1] - 2026-03-18
+
+### Added
+- Complete new introduction of using a PowerShell module, instead of one script [#5](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/5)
+- New Pester unit tests covering key functions: `Mount-WIM`, `Dismount-WIM`, `Install-Update`, `Install-AutodeskDeployment`, `Get-CachedFiles` and `Set-AutodeskUpdate` (risk‑based P0/P1 matrix)
+- CI workflow extended to execute PSScriptAnalyzer and the unit‑test suite on pull requests and pushes to `main` in addition to tag‑based releases
+- Added optional `-ModuleVersionPin` parameter to `Install-ADSK.ps1` to pin online module download to a specific release version
+- Added CI code-signing step for `CIDEON.AutodeskDeployment.psm1` in tag-based release workflow
+- Added trap to avoid terminating the script for strange errors [#10](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/10)
+- Added compact console progress output [#11](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/11)
+- Progress output will suppressed when `-Quiet` is used in `Install-ADSK.ps1`.
+
+
+### Changed
+- Renamed `Get-WIM` to `Copy-WIM` — clearer intent, the function copies the WIM from the network share to the local machine
+- Replaced interactive `Read-Host` version prompt with a terminating `ErrorRecord` (`InvalidVersionFormat`) — scripts are now fully non-interactive per PowerShell best practices
+- Removed `foreach` loop over multiple WIM files; the module now discovers exactly one WIM matching the `-WIM` parameter and throws `WimFileNotFound` if zero or more than one match
+- Install-AutodeskDeployment accepts optional explicit config, log-folder and deployment-name parameters so deployment execution is less dependent on ambient module state.
+- Refactored `Copy-Local.ps1` into a thin wrapper that loads `CIDEON.AutodeskDeployment.psm1` with the same signed module bootstrap and optional `-ModuleVersionPin` behavior as `Install-ADSK.ps1`.
+
+### Fixed
+- Fixed `-WIM` parameter to accept value with an `.wim` suffix [#8](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/8)
+- `Install-Update` now guards against `$null` file lists by coercing results to an array; prevents runtime errors during WhatIf/empty-cache scenarios (covered by new unit test)
+- Fixed calling folders as installation [#9](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/9)
+- Install-AutodeskDeployment now creates missing LoggingSettings XML nodes correctly under module strict mode before saving the deployment config, and falls back to Image/Collection.xml if no explicit config list is present.
+
+### Documentation
+- Added or completed comment-based help (`.SYNOPSIS`, `.DESCRIPTION`, `.PARAMETER`, `.EXAMPLE`, `.NOTES`) for all module functions: `Set-InstallContext`, `Get-RealUserName`, `Get-UserSID`, `Set-InventorProjectFile`
+
 ## [1.1.2] - 2026-03-04
 ### Changed
 - Updated readme
 - Logfile from Install-ADSK renamed to Install-ADSK-20xx.log
-- `Install-AutodeskDeployment` now enforces `LoggingSettings` in selected deployment XML files before installer start (`-Files` selection): `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deplyoment-<WIM>.log`
+- `Install-AutodeskDeployment` now enforces `LoggingSettings` in selected deployment XML files before installer start (`-Files` selection): `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deployment-<WIM>.log`
 
 ### Fixed
 - Improved `WhatIf` output in `Install-CideonTool` for `CIDEON.VAULT.TOOLBOX*.msi` by adding explicit `ADDLOCAL` feature context in the `ShouldProcess` action text (also for service packs)
 - Adjusted MSI update logging in `Install-Update` to write to a dedicated per-file log (`<mainlog>_<msi-name>.log`), keeping the main script log independent
+- Install-Update, Install-CideonTool and other functions now get correct items (only files or only directories)
 
 ## [1.1.1] - 2026-03-04
 ### Changed

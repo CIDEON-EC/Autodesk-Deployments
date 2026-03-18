@@ -1,4 +1,4 @@
-# Install Autodesk Deplyoments with WIM
+# Install Autodesk Deployments with WIM
 
 ## 🚀 Workflow
 
@@ -36,35 +36,40 @@ Create these **hardcoded folder names** for additional content:
 #### **📦 Step 3: Create WIM File**
 - 🗜️ **Use 7-Zip** to create a WIM file from your deployment folder
 - 📁 **Include** all subfolders (`image/`, `Updates/`, `Cideon/`, `Local/`)
-- 💾 **Name** the WIM file descriptively (e.g., `PDC_2024.wim`)
+- 💾 **Name** the WIM file descriptively (e.g., `PDC_2026.wim`)
 
 #### **⚙️ Step 4: Configure Install-ADSK.ps1**
-The PowerShell script has **two main sections**:
+The solution now consists of **installer + module**:
 
 ```powershell
-#region Functions
-# 🔧 Pre-defined commands and utilities
-function Install-AutodeskDeployment { ... }
-function Install-CideonTool { ... }
-# ... 22 total functions
-#endregion
+# Install-ADSK.ps1
+# - Parameters
+# - Module loader (GitHub + signature validation)
+# - Invoke-DeploymentWorkflow with your mode-specific logic
+
+# CIDEON.AutodeskDeployment.psm1
+# - All helper, deployment and orchestration functions
+# - Signed and loaded by installer
 
 #region Code
-# 🎯 Your customization area:
-# - Install section
-# - Uninstall section
-# - Update section
+Invoke-DeploymentWorkflow -ModeHandler {
+    switch ($Mode) {
+        'Install'   { <# 🎯 Your install steps #> }
+        'Update'    { <# 🎯 Your update steps #> }
+        'Uninstall' { <# 🎯 Your uninstall steps #> }
+    }
+}
 #endregion
 ```
 
-> 💡 **Tip:** All functions are documented within the PS1 file itself!
+> 💡 **Tip:** Function implementations are now located in `CIDEON.AutodeskDeployment.psm1`.
 
 #### **▶️ Step 5: Execute Installation**
 Choose your preferred method:
 
 ```powershell
 # 🎯 Direct PowerShell execution
-.\Install-ADSK.ps1 -WIM "PDC_2024" -Mode "Install" -Logging
+.\Install-ADSK.ps1 -WIM "PDC_2026" -Mode "Install" -Logging
 
 # 📦 Via batch file (see samples/ folder)
 Install-Example.bat
@@ -79,14 +84,14 @@ Install-Example.bat
 cd \\SERVER\SHARE\ScriptLocation
 
 # 🚀 Run installation with logging and cleanup
-.\Install-ADSK.ps1 -WIM "PDC_2024" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging -Purge
+.\Install-ADSK.ps1 -WIM "PDC_2026" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging -Purge
 ```
 
 ### ✨ **Pro Tips**
 
 - 🔄 **Version Updates:** Just create a new WIM file for deployment changes
 - 📁 **Batch Files:** Check the `samples/` folder for common scenarios
-- 🛠️ **Local Copies:** Use `Copy-Local.ps1` for post-installation file copying
+- 🛠️ **Local Copies:** Use `Copy-Local.ps1` as a thin module-backed wrapper for post-installation file copying
 - 📝 **Logging:** Always use `-Logging` for troubleshooting
 
 ## Sample folder structure
@@ -143,17 +148,29 @@ The folder structure is based on the default Autodesk deployments. This could lo
 Use 7-zip to create a wim File from the deployment folder.
 
 ## Change the Install-ADSK.ps1 for your needs
-You can find the ps1 in two sections
-1. Functions
-    - In the Functions area you can find all pre defined commands.
-2. Code
-    - You can find the "Install", "Uninstall" and "Update" section. Here you can modify your own needs.
-All Functions are documented in the ps1 file itself.
+The script has two sections:
+1. **Module Loader** — Loads `CIDEON.AutodeskDeployment.psm1` from GitHub and validates the Authenticode signature.
+2. **Code** — Calls `Invoke-DeploymentWorkflow -ModeHandler { … }`. The module handles version validation, logging, WIM discovery, mount paths, error handling and WIM dismount. You only supply the mode-specific logic (`Install` / `Update` / `Uninstall`) inside the `switch ($Mode)` block.
+
+All helper functions are documented in `CIDEON.AutodeskDeployment.psm1`.
+
+## Module + Certificate
+
+- Installer: `Install-ADSK.ps1`
+- Module: `CIDEON.AutodeskDeployment.psm1`
+- Public certificate: `CIDEON-CodeSigning.cer`
+- Certificate guide: `Certificate.md`
+
+The installer loads the module from GitHub Release assets, validates the signature and falls back to the local module in the script directory if remote loading fails.
+
+The installer resolves the module and certificate from GitHub Release assets:
+- default: latest release
+- optional: pinned release version via `-ModuleVersionPin`
 
 
 ## FAQ
 ### What if I need to change the Autodesk deployment or change/add files?
-The fastest way is just to create a new WIM file from the deplyoment folder
+The fastest way is just to create a new WIM file from the deployment folder
 <br><br>
 
 ### How to call the powershells and with wich parameters?
@@ -162,9 +179,15 @@ You can find batch files in the subfolder "samples" for all the basic scenarios.
 
 ### How can I copy file to the ProgramData folder or to the Users folder after installation?
 Ha, I got you!
-For this you can find the Copy-Local.ps1. A sample call you can also find in the samples folder.
+For this you can find the Copy-Local.ps1. It now uses the same signed module loader as Install-ADSK.ps1, including the optional pinned release version.
 
 This allows you to copy (by default the ProgramData and Users Folder) from the central stored deployment folders.
+
+Optional module pin example:
+
+```powershell
+.\Copy-Local.ps1 -Path "\\vaultsrv\CIDEON\_DPL" -Folder "Users" -ModuleVersionPin "1.2.0"
+```
 
 <h5 a><strong><code>Copy-Local.bat</code></strong></h5>
 
@@ -188,8 +211,9 @@ You can find this in the file itself, but here is an overview.
 | **Mode** | String | ✅ | - | Mode to execute: `Install`, `Uninstall`, `Update` |
 | **Path** | String | ❌ | Script location | Path to the WIM file. Not needed if WIM is in same folder as script |
 | **LocalFolder** | String | ❌ | `C:\Temp` | Local folder where WIM file should be downloaded and mapped |
-| **Files** | String Array | ❌ | `@("Collection")` | XML filenames WITHOUT extension for installation. Before each install, `LoggingSettings` in the selected XML is enforced to `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deplyoment-<WIM>.log` |
+| **Files** | String Array | ❌ | `@("Collection")` | XML filenames WITHOUT extension for installation. Before each install, `LoggingSettings` in the selected XML is enforced to `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deployment-<WIM>.log` |
 | **Version** | String | ❌ | Auto-extracted | Software version for Cideon tools and logging |
+| **ModuleVersionPin** | String | ❌ | Latest Release | Pins online module/certificate download to a specific release version (e.g. `1.2.0`) |
 | **Logging** | Switch | ❌ | `$false` | Enable log file creation in local folder |
 | **NoDownload** | Switch | ❌ | `$false` | Mount WIM from server instead of copying locally |
 | **Purge** | Switch | ❌ | `$false` | Delete WIM file after completion (cannot be combined with `-NoDownload`) |
@@ -220,6 +244,10 @@ cd \\SERVER\SHARE\ScriptLocation
 .\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -WhatIf
 ```
 ```powershell
+# Pin online module download to release 1.2.0 (default is latest release)
+.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -ModuleVersionPin "1.2.0"
+```
+```powershell
 # Uninstall mode
 .\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Uninstall" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
 ```
@@ -234,6 +262,7 @@ cd \\SERVER\SHARE\ScriptLocation
 
 | Function | Description | Required Parameters | Optional Parameters |
 |----------|-------------|-------------------|-------------------|
+| **Invoke-DeploymentWorkflow** | Orchestrates the full WIM deployment lifecycle (version validation, logging, WIM discovery, mount/dismount, error handling) and invokes a caller-supplied ScriptBlock for mode-specific logic | `ModeHandler` | - |
 | **Write-InstallLog** | Writes log entries to file (if logging enabled) | `text` | `Info`, `Fail` |
 | **Update-WIMInspectionCache** | Inspects and caches WIM folder/file metadata for later use | `MountedPath` | - |
 | **Get-CachedFiles** | Returns cached file-like entries for WhatIf scenarios | `Path`, `OperationText` | `CachedFiles` |
@@ -253,8 +282,8 @@ cd \\SERVER\SHARE\ScriptLocation
 | **Set-CIDEONLanguageVariable** | Sets Cideon language environment variables | - | - |
 | **Set-CIDEONVariable** | Sets Cideon environment variables | - | `Version` |
 | **Rename-RegistryInstallationPath** | Renames registry installation paths | - | - |
-| **Get-WIM** | Downloads/copies WIM file to local machine | `File` | `Folder` |
-| **Mount-WIM** | Mounts WIM file to specified path | `File` | `Path` |
+| **Copy-WIM** | Copies WIM file from network share to local machine | `File` | `Folder` |
+| **Mount-WIM** | Mounts WIM file to specified path; in WhatIf mode performs read-only inspection mount | `File` | `Path` |
 | **Dismount-WIM** | Dismounts WIM file | `Name` | `purge`, `all` |
 | **Register-WIMDismountTask** | Registers scheduled task for WIM dismount | - | - |
 | **Set-AutodeskUpdate** | Configures Autodesk update settings | One of: `Enable`, `ShowOnly`, `Disable` | - |
@@ -262,12 +291,15 @@ cd \\SERVER\SHARE\ScriptLocation
 
 ### Function Categories
 
+#### **Orchestration**
+- `Invoke-DeploymentWorkflow`
+
 #### **Installation & Deployment**
 - `Install-AutodeskDeployment`, `Uninstall-AutodeskDeployment`, `Set-AutodeskDeployment`
 - `Install-Update`, `Install-CideonTool`
 
 #### **WIM Management**
-- `Get-WIM`, `Mount-WIM`, `Dismount-WIM`, `Register-WIMDismountTask`
+- `Copy-WIM`, `Mount-WIM`, `Dismount-WIM`, `Register-WIMDismountTask`
 
 #### **WIM Inspection & Simulation**
 - `Update-WIMInspectionCache`, `Get-CachedFiles`

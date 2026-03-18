@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<BundleExtension xsi:schemaLocation="" xmlns="https://emsfs.autodesk.com/schema/manifestext/1/0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <Add>
+        <Packages>
+            <Package name="Vault 2025.3 Update (Client)" path="setup.xml" upi2="{90BE46AE-9E8D-30A5-85E3-A9D014AD5A4D}" sourceDir="d39">
+                <Dependencies>
+                    <Package upi2="{820FCAC1-941F-408F-9540-1C254786B995}"/>
+                </Dependencies>
+            </Package>
+            <Package name="German Language Pack for Vault 2025.2" path="setup.xml" upi2="{5B004CFC-0259-39E1-8020-66890DF21A02}" sourceDir="af9">
+                <Dependencies>
+                    <Package upi2="{820FCAC1-941F-408F-9540-1C254786B995}"/>
+                </Dependencies>
+            </Package>
+            <Package name="Czech Language Pack for Vault 2025.2" path="setup.xml" upi2="{A012D42D-F3C2-3A4E-A56A-DFFC2E5D2C24}" sourceDir="7d5">
+                <Dependencies>
+                    <Package upi2="{820FCAC1-941F-408F-9540-1C254786B995}"/>
+                </Dependencies>
+            </Package>
+            <Package name="Polish Language Pack for Vault 2025.2" path="setup.xml" upi2="{FABD3450-A370-3ADE-91BB-29CBCFA47AF6}" sourceDir="f73">
+                <Dependencies>
+                    <Package upi2="{820FCAC1-941F-408F-9540-1C254786B995}"/>
+                </Dependencies>
+            </Package>
+        </Packages>
+    </Add>
+    <Replace>
+        <Packages/>
+    </Replace>
+</BundleExtension>
