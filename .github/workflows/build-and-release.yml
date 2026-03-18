@@ -108,18 +108,11 @@ jobs:
         $pfxPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'codesign.pfx'
         [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:CODE_SIGNING_PFX_BASE64))
 
-        $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
-          $pfxPath,
-          $env:CODE_SIGNING_PFX_PASSWORD,
-          [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor
-          [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet
-        )
+        $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:CODE_SIGNING_PFX_PASSWORD -AsPlainText -Force)
 
         if (-not $cert.HasPrivateKey) {
           throw 'Loaded code-signing certificate does not contain a private key.'
         }
-
-        Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:CODE_SIGNING_PFX_PASSWORD -AsPlainText -Force) | Out-Null
 
         $modulePath = 'CIDEON.AutodeskDeployment.psm1'
         $signatureResult = Set-AuthenticodeSignature -FilePath $modulePath -Certificate $cert -TimestampServer $timestampServer -HashAlgorithm SHA256
