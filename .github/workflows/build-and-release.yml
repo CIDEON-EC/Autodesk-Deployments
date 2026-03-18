@@ -114,6 +114,17 @@ jobs:
           throw 'Loaded code-signing certificate does not contain a private key.'
         }
 
+        # Trust the signing cert on this runner so Set-AuthenticodeSignature returns Valid.
+        # Required because the cert is self-signed and not in any system trust store by default.
+        $publicCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData)
+        foreach ($storeName in @('Root', 'TrustedPublisher')) {
+          $store = [System.Security.Cryptography.X509Certificates.X509Store]::new($storeName, 'CurrentUser')
+          $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+          $store.Add($publicCert)
+          $store.Close()
+        }
+        Write-Host "Trusted signing certificate (thumbprint: $($cert.Thumbprint)) in Root and TrustedPublisher."
+
         $modulePath = 'CIDEON.AutodeskDeployment.psm1'
         $signatureResult = Set-AuthenticodeSignature -FilePath $modulePath -Certificate $cert -TimestampServer $timestampServer -HashAlgorithm SHA256
 
@@ -269,4 +280,13 @@ jobs:
 
         if (Test-Path -Path $pfxPath) {
           Remove-Item -Path $pfxPath -Force
+        }
+
+        # Remove the signing cert from trust stores (Root + TrustedPublisher)
+        foreach ($storeName in @('Root', 'TrustedPublisher')) {
+          $store = [System.Security.Cryptography.X509Certificates.X509Store]::new($storeName, 'CurrentUser')
+          $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+          $toRemove = $store.Certificates | Where-Object { $_.Subject -like '*CIDEON*' }
+          foreach ($c in $toRemove) { $store.Remove($c) }
+          $store.Close()
         }
