@@ -105,6 +105,14 @@ jobs:
           $env:CODE_SIGNING_TIMESTAMP_URL
         }
 
+        # -HashAlgorithm SHA256 requires RFC 3161 — silently upgrade the DigiCert legacy URL
+        # if the CODE_SIGNING_TIMESTAMP_URL secret still points at the old Authenticode endpoint.
+        if ($timestampServer -in @('http://timestamp.digicert.com', 'https://timestamp.digicert.com')) {
+          $timestampServer = 'http://timestamp.digicert.com/rfc3161'
+          Write-Warning "Timestamp URL upgraded to RFC 3161 endpoint for SHA256 compatibility."
+        }
+        Write-Host "Using timestamp server: $timestampServer"
+
         $pfxPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'codesign.pfx'
         [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:CODE_SIGNING_PFX_BASE64))
 
@@ -126,7 +134,25 @@ jobs:
         Write-Host "Trusted signing certificate (thumbprint: $($cert.Thumbprint)) in Root and TrustedPublisher."
 
         $modulePath = 'CIDEON.AutodeskDeployment.psm1'
-        $signatureResult = Set-AuthenticodeSignature -FilePath $modulePath -Certificate $cert -TimestampServer $timestampServer -HashAlgorithm SHA256
+
+        # Wrap signing in a background job so we can enforce a timeout.
+        # Set-AuthenticodeSignature has no -Timeout parameter and blocks indefinitely
+        # when the timestamp server is unreachable.
+        $signingJob = Start-Job -ScriptBlock {
+          param([string]$path, [string]$thumbprint, [string]$tsUrl)
+          $signingCert = Get-Item -Path "Cert:\CurrentUser\My\$thumbprint" -ErrorAction Stop
+          Set-AuthenticodeSignature -FilePath $path -Certificate $signingCert `
+            -TimestampServer $tsUrl -HashAlgorithm SHA256
+        } -ArgumentList $modulePath, $cert.Thumbprint, $timestampServer
+
+        $signingTimeoutSecs = 120
+        if (-not (Wait-Job $signingJob -Timeout $signingTimeoutSecs)) {
+          Stop-Job  $signingJob
+          Remove-Job $signingJob -Force
+          throw "Code signing timed out after $signingTimeoutSecs s — timestamp server '$timestampServer' unreachable."
+        }
+        $signatureResult = Receive-Job $signingJob -ErrorAction Stop
+        Remove-Job $signingJob -Force
 
         if ($signatureResult.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
           throw "Module signing failed. Signature status: $($signatureResult.Status)"
