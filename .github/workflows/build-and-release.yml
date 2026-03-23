@@ -121,17 +121,7 @@ jobs:
         if (-not $cert.HasPrivateKey) {
           throw 'Loaded code-signing certificate does not contain a private key.'
         }
-
-        # Trust the signing cert on this runner so Set-AuthenticodeSignature returns Valid.
-        # Required because the cert is self-signed and not in any system trust store by default.
-        $publicCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData)
-        foreach ($storeName in @('Root', 'TrustedPublisher')) {
-          $store = [System.Security.Cryptography.X509Certificates.X509Store]::new($storeName, 'CurrentUser')
-          $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-          $store.Add($publicCert)
-          $store.Close()
-        }
-        Write-Host "Trusted signing certificate (thumbprint: $($cert.Thumbprint)) in Root and TrustedPublisher."
+        Write-Host "Loaded signing certificate (thumbprint: $($cert.Thumbprint))"
 
         $modulePath = 'CIDEON.AutodeskDeployment.psm1'
 
@@ -154,16 +144,28 @@ jobs:
         $signatureResult = Receive-Job $signingJob -ErrorAction Stop
         Remove-Job $signingJob -Force
 
-        if ($signatureResult.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-          throw "Module signing failed. Signature status: $($signatureResult.Status)"
+        # The cert is self-signed — status will be UnknownError (chain not trusted on the runner).
+        # We verify by thumbprint: the file must be signed with OUR cert, not be unsigned or tampered.
+        if ($signatureResult.Status -eq [System.Management.Automation.SignatureStatus]::NotSigned) {
+          throw "Module signing failed — file is not signed. Status: $($signatureResult.Status)"
+        }
+        if ($signatureResult.Status -eq [System.Management.Automation.SignatureStatus]::HashMismatch) {
+          throw "Module signing failed — hash mismatch. Status: $($signatureResult.Status)"
+        }
+        if ($signatureResult.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
+          throw "Module signing failed — signed with unexpected certificate (thumbprint: $($signatureResult.SignerCertificate.Thumbprint))"
         }
 
         $verification = Get-AuthenticodeSignature -FilePath $modulePath
-        if ($verification.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-          throw "Signed module verification failed. Signature status: $($verification.Status)"
+        if ($verification.Status -eq [System.Management.Automation.SignatureStatus]::NotSigned -or
+            $verification.Status -eq [System.Management.Automation.SignatureStatus]::HashMismatch) {
+          throw "Signed module verification failed. Status: $($verification.Status)"
+        }
+        if ($verification.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
+          throw "Signed module verification failed — signer thumbprint mismatch."
         }
 
-        Write-Host 'Module signing and signature verification completed successfully.'
+        Write-Host "Module signed and verified successfully. Signer: $($cert.Subject) ($($cert.Thumbprint))"
 
     - name: Create deployment package
       run: |
@@ -308,11 +310,9 @@ jobs:
           Remove-Item -Path $pfxPath -Force
         }
 
-        # Remove the signing cert from trust stores (Root + TrustedPublisher)
-        foreach ($storeName in @('Root', 'TrustedPublisher')) {
-          $store = [System.Security.Cryptography.X509Certificates.X509Store]::new($storeName, 'CurrentUser')
-          $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-          $toRemove = $store.Certificates | Where-Object { $_.Subject -like '*CIDEON*' }
-          foreach ($c in $toRemove) { $store.Remove($c) }
-          $store.Close()
-        }
+        # Remove the signing cert from CurrentUser\My store
+        $myStore = [System.Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser')
+        $myStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        $toRemove = $myStore.Certificates | Where-Object { $_.Subject -like '*CIDEON*' }
+        foreach ($c in $toRemove) { $myStore.Remove($c) }
+        $myStore.Close()
