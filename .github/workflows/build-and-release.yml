@@ -99,7 +99,7 @@ jobs:
         }
 
         $timestampServer = if ([string]::IsNullOrWhiteSpace($env:CODE_SIGNING_TIMESTAMP_URL)) {
-          'http://timestamp.digicert.com'
+          'http://timestamp.digicert.com/rfc3161'
         }
         else {
           $env:CODE_SIGNING_TIMESTAMP_URL
