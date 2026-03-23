@@ -58,6 +58,16 @@ BeforeAll {
         }
     }
 
+    if (-not (Get-Command -Name Test-IsElevated -ErrorAction SilentlyContinue)) {
+        Set-Item -Path 'function:global:Test-IsElevated' -Value { $true }
+    }
+
+    if (-not (Get-Command -Name Invoke-Certutil -ErrorAction SilentlyContinue)) {
+        Set-Item -Path 'function:global:Invoke-Certutil' -Value {
+            param([string]$AddStore, [string]$FilePath)
+        }
+    }
+
     @(
         'Copy-WIM',
         'Mount-WIM',
@@ -139,6 +149,17 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
             param($ModeHandler)
             & $ModeHandler
         }
+
+        Mock -CommandName Test-IsElevated -MockWith { $true }
+        Mock -CommandName Invoke-Certutil -MockWith {}
+    }
+
+    Context 'Administrator check' {
+        It 'throws when not running as administrator' {
+            Mock -CommandName Test-IsElevated -MockWith { $false }
+
+            { Invoke-Sut -Wim 'PDC_2026' -Mode 'Install' } | Should -Throw '*must be run as administrator*'
+        }
     }
 
     Context 'WIM parameter normalization' {
@@ -152,6 +173,14 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
     Context 'Parameter validation' {
         It 'throws when ModuleVersionPin has invalid format' {
             { Invoke-Sut -Wim 'PDC_2026' -Mode 'Install' -ModuleVersionPin 'abc' } | Should -Throw
+        }
+
+        It 'accepts stable semver format for ModuleVersionPin' {
+            { Invoke-Sut -Wim 'PDC_2026' -Mode 'Install' -ModuleVersionPin '1.2.3' } | Should -Not -Throw -Because 'stable semver X.Y.Z must be accepted'
+        }
+
+        It 'accepts pre-release semver format for ModuleVersionPin' {
+            { Invoke-Sut -Wim 'PDC_2026' -Mode 'Install' -ModuleVersionPin '2.0.0-beta.1' } | Should -Not -Throw -Because 'pre-release semver X.Y.Z-pre.N must be accepted'
         }
     }
 
@@ -182,20 +211,12 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
                 $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
             }
 
-            Mock -CommandName New-Object -MockWith {
-                $store = [pscustomobject]@{ Certificates = @() }
-                $store | Add-Member -MemberType ScriptMethod -Name Open -Value {
-                    param([object]$flags)
-                } -Force
-                $store | Add-Member -MemberType ScriptMethod -Name Add -Value {
-                    param([object]$certificate)
-                    $this.Certificates = @($this.Certificates + $certificate)
-                } -Force
-                $store | Add-Member -MemberType ScriptMethod -Name Close -Value {
-                } -Force
-                $store
-            } -ParameterFilter {
-                $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Store'
+            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
+                $Path -like 'Cert:\*'
+            }
+
+            Mock -CommandName Import-Certificate -MockWith {} -ParameterFilter {
+                $CertStoreLocation -like 'Cert:\*'
             }
 
             Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
@@ -252,25 +273,18 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
                 $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
             }
 
-            Mock -CommandName New-Object -MockWith {
-                $store = [pscustomobject]@{ Certificates = @() }
-                $store | Add-Member -MemberType ScriptMethod -Name Open -Value {
-                    param([object]$flags)
-                } -Force
-                $store | Add-Member -MemberType ScriptMethod -Name Add -Value {
-                    param([object]$certificate)
-                    $this.Certificates = @($this.Certificates + $certificate)
-                } -Force
-                $store | Add-Member -MemberType ScriptMethod -Name Close -Value {
-                } -Force
-                $store
-            } -ParameterFilter {
-                $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Store'
+            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
+                $Path -like 'Cert:\*'
+            }
+
+            Mock -CommandName Import-Certificate -MockWith {} -ParameterFilter {
+                $CertStoreLocation -like 'Cert:\*'
             }
 
             Mock -CommandName Get-AuthenticodeSignature -MockWith {
                 [PSCustomObject]@{
-                    Status = [System.Management.Automation.SignatureStatus]::NotTrusted
+                    Status        = [System.Management.Automation.SignatureStatus]::NotTrusted
+                    StatusMessage = 'A certificate chain could not be built to a trusted root authority.'
                 }
             }
 
@@ -290,7 +304,7 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
             {
                 Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
-            } | Should -Throw '*Failed to load module from remote and no local fallback found*'
+            } | Should -Throw '*Remote module loading failed*no local fallback found*'
         }
 
         It 'imports local fallback module when remote loading fails but local module is present' {

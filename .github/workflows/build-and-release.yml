@@ -123,6 +123,12 @@ jobs:
         }
         Write-Host "Loaded signing certificate (thumbprint: $($cert.Thumbprint))"
 
+        # Export the public certificate from the PFX so CIDEON-CodeSigning.cer
+        # always matches the certificate used for signing — never rely on a
+        # manually committed .cer that may be out of sync with the PFX secret.
+        Export-Certificate -Cert $cert -FilePath 'CIDEON-CodeSigning.cer' -Type CERT -Force | Out-Null
+        Write-Host "Exported public certificate to CIDEON-CodeSigning.cer"
+
         $modulePath = 'CIDEON.AutodeskDeployment.psm1'
 
         # Wrap signing in a background job so we can enforce a timeout.

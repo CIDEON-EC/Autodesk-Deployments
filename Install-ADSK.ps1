@@ -81,7 +81,7 @@
     Suppresses output messages.
 .PARAMETER SkipSignatureCheck
     Skips Authenticode signature validation for the local fallback module.
-    For development/testing use only — do NOT use in production environments.
+    For development/testing use only - do NOT use in production environments.
 .EXAMPLE
 cd \\SERVER\SHARE\ScriptLocation
 .\WIM-AppDeploy.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
@@ -139,9 +139,9 @@ param (
     [Parameter(Mandatory = $false, HelpMessage = 'Deletes the WIM file after finishing the script')]
     [switch]$Purge,
 
-    [Parameter(Mandatory = $false, HelpMessage = 'Optional: Pin remote module download to a specific release version (e.g. 1.2.0). Default is latest release.')]
+    [Parameter(Mandatory = $false, HelpMessage = 'Optional: Pin remote module download to a specific release version (e.g. 1.2.0 or 2.0.0-beta.1). Default is latest release.')]
     [ValidateNotNullOrEmpty()]
-    [ValidatePattern('^\d+\.\d+\.\d+$')]
+    [ValidatePattern('^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$')]
     [string]$ModuleVersionPin,
 
     [Parameter(Mandatory = $false, HelpMessage = 'Suppresses output messages')]
@@ -153,6 +153,16 @@ param (
 
 
 #region Module Loader
+function Test-IsElevated {
+    ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator
+    )
+}
+
+if (-not (Test-IsElevated)) {
+    throw 'This script must be run as administrator.'
+}
+
 if ($WIM.EndsWith('.wim', [System.StringComparison]::OrdinalIgnoreCase)) {
     $WIM = $WIM.Substring(0, $WIM.Length - 4)
 }
@@ -248,7 +258,7 @@ function Save-RemoteFile {
     )
 
     if (-not (Test-Path -Path (Split-Path -Path $DestinationPath -Parent))) {
-        New-Item -Path (Split-Path -Path $DestinationPath -Parent) -ItemType Directory -Force | Out-Null
+        New-Item -Path (Split-Path -Path $DestinationPath -Parent) -ItemType Directory -Force -WhatIf:$false | Out-Null
     }
 
     Invoke-WebRequest -Uri $Uri -OutFile $DestinationPath -UseBasicParsing -ErrorAction Stop
@@ -257,13 +267,19 @@ function Save-RemoteFile {
 function Add-CertificateToStoreIfMissing {
     <#
     .SYNOPSIS
-        Adds a code-signing certificate to the current user's TrustedPublisher store if not already present.
+        Adds a code-signing certificate to the LocalMachine TrustedPublisher and Root stores if not already present.
 
     .DESCRIPTION
-        Loads an X.509 certificate from the specified file and checks the
-        CurrentUser\TrustedPublisher store for a matching thumbprint. If the
-        certificate is not yet trusted, it is added so that Authenticode
-        signature validation succeeds for signed modules.
+        Loads an X.509 certificate from the specified file and adds it to both
+        the LocalMachine\TrustedPublisher store (so PowerShell accepts scripts
+        from this publisher) and the LocalMachine\Root store (so Authenticode
+        chain validation succeeds).
+
+        TrustedPublisher: uses Import-Certificate (PKI module).
+        Root: uses certutil.exe -addstore, which is the only method that adds a
+        root CA certificate silently without an interactive security dialog.
+
+        Requires the script to run as administrator.
 
     .PARAMETER CertificatePath
         The full path to the .cer certificate file.
@@ -278,16 +294,37 @@ function Add-CertificateToStoreIfMissing {
     )
 
     $certificate = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CertificatePath)
-    $trustedPublisherStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('TrustedPublisher', 'CurrentUser')
-    $trustedPublisherStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-    try {
-        $existing = $trustedPublisherStore.Certificates | Where-Object { $_.Thumbprint -eq $certificate.Thumbprint }
-        if (-not $existing) {
-            $trustedPublisherStore.Add($certificate)
-        }
+
+    # TrustedPublisher: Import-Certificate works without any dialog
+    $tpPath = 'Cert:\LocalMachine\TrustedPublisher'
+    $alreadyInTP = Get-ChildItem -Path $tpPath | Where-Object { $_.Thumbprint -eq $certificate.Thumbprint }
+    if (-not $alreadyInTP) {
+        Import-Certificate -FilePath $CertificatePath -CertStoreLocation $tpPath -WhatIf:$false | Out-Null
     }
-    finally {
-        $trustedPublisherStore.Close()
+
+    # Root: certutil.exe -addstore is the only silent option when elevated
+    $alreadyInRoot = Get-ChildItem -Path 'Cert:\LocalMachine\Root' | Where-Object { $_.Thumbprint -eq $certificate.Thumbprint }
+    if (-not $alreadyInRoot) {
+        Invoke-Certutil -AddStore 'Root' -FilePath $CertificatePath
+    }
+}
+
+function Invoke-Certutil {
+    <#
+    .SYNOPSIS
+        Thin wrapper around certutil.exe -addstore for testability.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$AddStore,
+        [Parameter(Mandatory)]
+        [string]$FilePath
+    )
+
+    $result = & certutil.exe -addstore -f $AddStore $FilePath 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "certutil failed to add certificate to '$AddStore' store (exit $LASTEXITCODE): $result"
     }
 }
 
@@ -320,7 +357,7 @@ function Import-RemoteSignedDeploymentModule {
 
     $signature = Get-AuthenticodeSignature -FilePath $ModuleLocalPath
     if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw "Module signature is invalid. Status: $($signature.Status)"
+        throw "Module signature is invalid. Status: $($signature.Status) - $($signature.StatusMessage)"
     }
 
     Import-Module -Name $ModuleLocalPath -Force -ErrorAction Stop
@@ -342,14 +379,16 @@ try {
 catch {
     if ($SkipSignatureCheck) { throw }
 
+    $remoteError = $_.Exception.Message
+
     $fallbackLocalModule = Join-Path -Path $PSScriptRoot -ChildPath $ModuleFileName
     if (-not (Test-Path -Path $fallbackLocalModule)) {
-        throw "Failed to load module from remote and no local fallback found. $($_.Exception.Message)"
+        throw "Remote module loading failed: $remoteError - no local fallback found at '$fallbackLocalModule'."
     }
 
     $fallbackSignature = Get-AuthenticodeSignature -FilePath $fallbackLocalModule
     if ($fallbackSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw "Fallback module signature is invalid. Status: $($fallbackSignature.Status)"
+        throw "Remote module loading failed: $remoteError - fallback module at '$fallbackLocalModule' is also unusable (Signature: $($fallbackSignature.Status) - $($fallbackSignature.StatusMessage))."
     }
 
     Import-Module -Name $fallbackLocalModule -Force -ErrorAction Stop
@@ -393,16 +432,16 @@ Invoke-DeploymentWorkflow -ModeHandler {
             Mount-WIM
 
             # install autodesk software
-            Install-AutodeskDeployment
+            Install-AutodeskDeployment -ConfigFile INVVLT
 
             # set Autodesk Update mode
-            Set-AutodeskUpdate -ShowOnly
+            Set-AutodeskUpdate -Disable
 
             #updates
             Install-Update
 
             # install CIDEON Tools
-            Install-CIDEONTool -VaultToolboxStandard -VaultToolboxPro -VaultToolboxObserver -VaultToolboxClassification
+            Install-CIDEONTool -VaultToolboxStandard -VaultToolboxPro -VaultToolboxObserver -VaultToolboxUpdate
             # disable standard vault toolbox jobs and events
             Disable-VaultExtension
             # copy local configuration files (e.g. license files)
