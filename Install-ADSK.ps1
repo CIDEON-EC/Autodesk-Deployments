@@ -275,9 +275,13 @@ function Add-CertificateToStoreIfMissing {
         from this publisher) and the LocalMachine\Root store (so Authenticode
         chain validation succeeds).
 
-        TrustedPublisher: uses Import-Certificate (PKI module).
-        Root: uses certutil.exe -addstore, which is the only method that adds a
-        root CA certificate silently without an interactive security dialog.
+        After installing the new certificate, stale certificates with the same
+        subject but a different thumbprint are removed from both stores, preventing
+        accumulation of outdated trust anchors.
+
+        TrustedPublisher: uses Import-Certificate (PKI module) and Remove-Item.
+        Root: uses certutil.exe -addstore/-delstore, which are the only methods
+        that add/remove root CA certificates silently without an interactive dialog.
 
         Requires the script to run as administrator.
 
@@ -301,12 +305,21 @@ function Add-CertificateToStoreIfMissing {
     if (-not $alreadyInTP) {
         Import-Certificate -FilePath $CertificatePath -CertStoreLocation $tpPath -WhatIf:$false | Out-Null
     }
+    # Remove stale TrustedPublisher certificates with the same subject
+    Get-ChildItem -Path $tpPath |
+        Where-Object { $_.Subject -eq $certificate.Subject -and $_.Thumbprint -ne $certificate.Thumbprint } |
+        ForEach-Object { Remove-Item -Path "$tpPath\$($_.Thumbprint)" -Force }
 
-    # Root: certutil.exe -addstore is the only silent option when elevated
-    $alreadyInRoot = Get-ChildItem -Path 'Cert:\LocalMachine\Root' | Where-Object { $_.Thumbprint -eq $certificate.Thumbprint }
+    # Root: certutil.exe -addstore/-delstore is the only silent option when elevated
+    $rootPath = 'Cert:\LocalMachine\Root'
+    $alreadyInRoot = Get-ChildItem -Path $rootPath | Where-Object { $_.Thumbprint -eq $certificate.Thumbprint }
     if (-not $alreadyInRoot) {
         Invoke-Certutil -AddStore 'Root' -FilePath $CertificatePath
     }
+    # Remove stale Root certificates with the same subject
+    Get-ChildItem -Path $rootPath |
+        Where-Object { $_.Subject -eq $certificate.Subject -and $_.Thumbprint -ne $certificate.Thumbprint } |
+        ForEach-Object { Invoke-CertutilDelete -StoreName 'Root' -Thumbprint $_.Thumbprint }
 }
 
 function Invoke-Certutil {
@@ -325,6 +338,25 @@ function Invoke-Certutil {
     $result = & certutil.exe -addstore -f $AddStore $FilePath 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "certutil failed to add certificate to '$AddStore' store (exit $LASTEXITCODE): $result"
+    }
+}
+
+function Invoke-CertutilDelete {
+    <#
+    .SYNOPSIS
+        Thin wrapper around certutil.exe -delstore for testability.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$StoreName,
+        [Parameter(Mandatory)]
+        [string]$Thumbprint
+    )
+
+    $result = & certutil.exe -delstore $StoreName $Thumbprint 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "certutil failed to remove certificate '$Thumbprint' from '$StoreName' store (exit $LASTEXITCODE): $result"
     }
 }
 

@@ -68,6 +68,12 @@ BeforeAll {
         }
     }
 
+    if (-not (Get-Command -Name Invoke-CertutilDelete -ErrorAction SilentlyContinue)) {
+        Set-Item -Path 'function:global:Invoke-CertutilDelete' -Value {
+            param([string]$StoreName, [string]$Thumbprint)
+        }
+    }
+
     @(
         'Copy-WIM',
         'Mount-WIM',
@@ -152,6 +158,7 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
         Mock -CommandName Test-IsElevated -MockWith { $true }
         Mock -CommandName Invoke-Certutil -MockWith {}
+        Mock -CommandName Invoke-CertutilDelete -MockWith {}
     }
 
     Context 'Administrator check' {
@@ -316,6 +323,76 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
             Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter {
                 $Name -like '*CIDEON.AutodeskDeployment.psm1' -and $Force -eq $true
+            }
+        }
+    }
+
+    Context 'Certificate store cleanup' {
+        BeforeEach {
+            Mock -CommandName Invoke-RestMethod -MockWith {
+                [pscustomobject]@{
+                    assets = @(
+                        [pscustomobject]@{
+                            name                 = 'CIDEON.AutodeskDeployment.psm1'
+                            browser_download_url = 'https://example.invalid/CIDEON.AutodeskDeployment.psm1'
+                        },
+                        [pscustomobject]@{
+                            name                 = 'CIDEON-CodeSigning.cer'
+                            browser_download_url = 'https://example.invalid/CIDEON-CodeSigning.cer'
+                        }
+                    )
+                }
+            }
+            Mock -CommandName Invoke-WebRequest -MockWith {}
+            Mock -CommandName New-Object -MockWith {
+                [pscustomobject]@{
+                    Thumbprint = 'NEW-THUMBPRINT'
+                    Subject    = 'CN=CIDEON Code Signing'
+                }
+            } -ParameterFilter {
+                $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
+            }
+            Mock -CommandName Import-Certificate -MockWith {} -ParameterFilter {
+                $CertStoreLocation -like 'Cert:\*'
+            }
+        }
+
+        It 'removes stale TrustedPublisher certificate with same subject when a newer certificate is installed' {
+            $staleCert = [pscustomobject]@{
+                Thumbprint = 'OLD-THUMBPRINT'
+                Subject    = 'CN=CIDEON Code Signing'
+            }
+            Mock -CommandName Get-ChildItem -MockWith { @($staleCert) } -ParameterFilter {
+                $Path -eq 'Cert:\LocalMachine\TrustedPublisher'
+            }
+            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
+                $Path -eq 'Cert:\LocalMachine\Root'
+            }
+            Mock -CommandName Remove-Item -MockWith {}
+
+            Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
+
+            Should -Invoke Remove-Item -Times 1 -Exactly -ParameterFilter {
+                $Path -like '*OLD-THUMBPRINT*'
+            }
+        }
+
+        It 'removes stale Root certificate with same subject when a newer certificate is installed' {
+            $staleCert = [pscustomobject]@{
+                Thumbprint = 'OLD-THUMBPRINT'
+                Subject    = 'CN=CIDEON Code Signing'
+            }
+            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
+                $Path -eq 'Cert:\LocalMachine\TrustedPublisher'
+            }
+            Mock -CommandName Get-ChildItem -MockWith { @($staleCert) } -ParameterFilter {
+                $Path -eq 'Cert:\LocalMachine\Root'
+            }
+
+            Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
+
+            Should -Invoke Invoke-CertutilDelete -Times 1 -Exactly -ParameterFilter {
+                $StoreName -eq 'Root' -and $Thumbprint -eq 'OLD-THUMBPRINT'
             }
         }
     }
