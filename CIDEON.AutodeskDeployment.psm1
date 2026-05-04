@@ -478,6 +478,9 @@ function Install-Update {
         elseif ($file.Name -like '*vba*') {
             $arguments = '/quiet /norestart'
         }
+        elseif ($file.Name -like '*Inventor*exe' -or $file.Name -like '*Vault*exe') {
+            $arguments = '-q'
+        }
         else {
             $arguments = '-q /quiet'
         }
