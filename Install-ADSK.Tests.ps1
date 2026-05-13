@@ -2,6 +2,7 @@ $WhatIfPreference = $false
 
 BeforeAll {
     $sutPath = Join-Path -Path $PSScriptRoot -ChildPath 'Install-ADSK.ps1'
+    $global:InstallAdskTrustedThumbprint = '53D03841EC43C1C545F56919F9A6AEF0C7D2E783'
 
     if (-not (Get-Command -Name Set-InstallContext -ErrorAction SilentlyContinue)) {
         Set-Item -Path 'function:global:Set-InstallContext' -Value {
@@ -126,11 +127,16 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
         Mock -CommandName Get-AuthenticodeSignature -MockWith {
             [PSCustomObject]@{
-                Status = [System.Management.Automation.SignatureStatus]::Valid
+                Status            = [System.Management.Automation.SignatureStatus]::Valid
+                StatusMessage     = $null
+                SignerCertificate = [pscustomobject]@{
+                    Thumbprint = $global:InstallAdskTrustedThumbprint
+                }
             }
         }
 
         Mock -CommandName Import-Module -MockWith {}
+        Mock -CommandName Import-Certificate -MockWith {}
         Mock -CommandName Set-InstallContext -MockWith {}
         Mock -CommandName Write-InstallLog -MockWith {}
 
@@ -212,7 +218,8 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
             Mock -CommandName New-Object -MockWith {
                 [pscustomobject]@{
-                    Thumbprint = 'THUMBPRINT-UNIT-TEST'
+                    Thumbprint = $global:InstallAdskTrustedThumbprint
+                    Subject    = 'CN=CIDEON-EC Code Signing'
                 }
             } -ParameterFilter {
                 $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
@@ -274,7 +281,8 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
             Mock -CommandName New-Object -MockWith {
                 [pscustomobject]@{
-                    Thumbprint = 'THUMBPRINT-UNIT-TEST'
+                    Thumbprint = $global:InstallAdskTrustedThumbprint
+                    Subject    = 'CN=CIDEON-EC Code Signing'
                 }
             } -ParameterFilter {
                 $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
@@ -290,8 +298,11 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
             Mock -CommandName Get-AuthenticodeSignature -MockWith {
                 [PSCustomObject]@{
-                    Status        = [System.Management.Automation.SignatureStatus]::NotTrusted
-                    StatusMessage = 'A certificate chain could not be built to a trusted root authority.'
+                    Status            = [System.Management.Automation.SignatureStatus]::NotTrusted
+                    StatusMessage     = 'A certificate chain could not be built to a trusted root authority.'
+                    SignerCertificate = [pscustomobject]@{
+                        Thumbprint = $global:InstallAdskTrustedThumbprint
+                    }
                 }
             }
 
@@ -325,6 +336,94 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
                 $Name -like '*CIDEON.AutodeskDeployment.psm1' -and $Force -eq $true
             }
         }
+
+        It 'rejects a downloaded certificate whose thumbprint is not pinned before importing it into the certificate store' {
+            Mock -CommandName Invoke-RestMethod -MockWith {
+                [pscustomobject]@{
+                    assets = @(
+                        [pscustomobject]@{
+                            name                 = 'CIDEON.AutodeskDeployment.psm1'
+                            browser_download_url = 'https://example.invalid/CIDEON.AutodeskDeployment.psm1'
+                        },
+                        [pscustomobject]@{
+                            name                 = 'CIDEON-CodeSigning.cer'
+                            browser_download_url = 'https://example.invalid/CIDEON-CodeSigning.cer'
+                        }
+                    )
+                }
+            }
+
+            Mock -CommandName Invoke-WebRequest -MockWith {}
+            Mock -CommandName New-Object -MockWith {
+                [pscustomobject]@{
+                    Thumbprint = '0000000000000000000000000000000000000000'
+                    Subject    = 'CN=Unexpected Code Signing'
+                }
+            } -ParameterFilter {
+                $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
+            }
+            Mock -CommandName Test-Path -MockWith { $false } -ParameterFilter {
+                $Path -like '*CIDEON.AutodeskDeployment.psm1'
+            }
+
+            {
+                Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
+            } | Should -Throw '*thumbprint*is not trusted*'
+
+            Should -Invoke Import-Certificate -Times 0 -Exactly
+            Should -Invoke Invoke-Certutil -Times 0 -Exactly
+        }
+
+        It 'rejects a module whose signer thumbprint does not match the pinned release certificate' {
+            Mock -CommandName Invoke-RestMethod -MockWith {
+                [pscustomobject]@{
+                    assets = @(
+                        [pscustomobject]@{
+                            name                 = 'CIDEON.AutodeskDeployment.psm1'
+                            browser_download_url = 'https://example.invalid/CIDEON.AutodeskDeployment.psm1'
+                        },
+                        [pscustomobject]@{
+                            name                 = 'CIDEON-CodeSigning.cer'
+                            browser_download_url = 'https://example.invalid/CIDEON-CodeSigning.cer'
+                        }
+                    )
+                }
+            }
+
+            Mock -CommandName Invoke-WebRequest -MockWith {}
+            Mock -CommandName New-Object -MockWith {
+                [pscustomobject]@{
+                    Thumbprint = $global:InstallAdskTrustedThumbprint
+                    Subject    = 'CN=CIDEON-EC Code Signing'
+                }
+            } -ParameterFilter {
+                $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
+            }
+            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
+                $Path -like 'Cert:\*'
+            }
+            Mock -CommandName Import-Certificate -MockWith {} -ParameterFilter {
+                $CertStoreLocation -like 'Cert:\*'
+            }
+            Mock -CommandName Get-AuthenticodeSignature -MockWith {
+                [PSCustomObject]@{
+                    Status            = [System.Management.Automation.SignatureStatus]::Valid
+                    StatusMessage     = $null
+                    SignerCertificate = [pscustomobject]@{
+                        Thumbprint = 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'
+                    }
+                }
+            }
+            Mock -CommandName Test-Path -MockWith { $false } -ParameterFilter {
+                $Path -like '*CIDEON.AutodeskDeployment.psm1'
+            }
+
+            {
+                Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
+            } | Should -Throw '*Module signer thumbprint*is not trusted*'
+
+            Should -Invoke Import-Module -Times 0 -Exactly
+        }
     }
 
     Context 'Certificate store cleanup' {
@@ -346,8 +445,8 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
             Mock -CommandName Invoke-WebRequest -MockWith {}
             Mock -CommandName New-Object -MockWith {
                 [pscustomobject]@{
-                    Thumbprint = 'NEW-THUMBPRINT'
-                    Subject    = 'CN=CIDEON Code Signing'
+                    Thumbprint = $global:InstallAdskTrustedThumbprint
+                    Subject    = 'CN=CIDEON-EC Code Signing'
                 }
             } -ParameterFilter {
                 $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
@@ -360,7 +459,7 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
         It 'removes stale TrustedPublisher certificate with same subject when a newer certificate is installed' {
             $staleCert = [pscustomobject]@{
                 Thumbprint = 'OLD-THUMBPRINT'
-                Subject    = 'CN=CIDEON Code Signing'
+                Subject    = 'CN=CIDEON-EC Code Signing'
             }
             Mock -CommandName Get-ChildItem -MockWith { @($staleCert) } -ParameterFilter {
                 $Path -eq 'Cert:\LocalMachine\TrustedPublisher'
@@ -380,7 +479,7 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
         It 'removes stale Root certificate with same subject when a newer certificate is installed' {
             $staleCert = [pscustomobject]@{
                 Thumbprint = 'OLD-THUMBPRINT'
-                Subject    = 'CN=CIDEON Code Signing'
+                Subject    = 'CN=CIDEON-EC Code Signing'
             }
             Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
                 $Path -eq 'Cert:\LocalMachine\TrustedPublisher'

@@ -1,0 +1,45 @@
+{
+    // Verwendet IntelliSense zum Ermitteln möglicher Attribute.
+    // Zeigen Sie auf vorhandene Attribute, um die zugehörigen Beschreibungen anzuzeigen.
+    // Weitere Informationen finden Sie unter https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "PowerShell: Launch Current File",
+            "type": "PowerShell",
+            "request": "launch",
+            "script": "${file}",
+            "args": [
+                "-WIM",
+                "2026_PDC_VLT",
+                "-Mode",
+                "Install",
+                "-Path",
+                "D:\\INSTALL\\ADSK",
+                "-Logging",
+                "-WhatIf",
+                "-ModuleVersionPin",
+                "2.0.0-beta.1",
+                "-NoDownload"
+            ]
+        },
+        {
+            "name": "PowerShell: Launch Current File - skip signature check",
+            "type": "PowerShell",
+            "request": "launch",
+            "script": "${file}",
+            "args": [
+                "-WIM",
+                "2026_PDC_VLT",
+                "-Mode",
+                "Install",
+                "-Path",
+                "D:\\INSTALL\\ADSK",
+                "-Logging",
+                "-WhatIf",
+                "-SkipSignatureCheck",
+                "-NoDownload"
+            ]
+        }
+    ]
+}

@@ -177,9 +177,123 @@ $RepositoryApiBaseUrl = "https://api.github.com/repos/$RepositoryOwner/$Reposito
 $ModuleCacheFolder = Join-Path -Path $env:ProgramData -ChildPath 'CIDEON/Autodesk-Deployments'
 $ModuleLocalPath = Join-Path -Path $ModuleCacheFolder -ChildPath $ModuleFileName
 $CertificateLocalPath = Join-Path -Path $ModuleCacheFolder -ChildPath $CertificateFileName
+$TrustedCertificateThumbprints = @(
+    '53D03841EC43C1C545F56919F9A6AEF0C7D2E783'
+)
 
 # Example for pinned remote module release:
 # .\Install-ADSK.ps1 -WIM "PDC_2026" -Mode "Install" -ModuleVersionPin "1.2.0"
+
+function Get-NormalizedThumbprint {
+    <#
+    .SYNOPSIS
+        Normalizes a certificate thumbprint for allowlist comparisons.
+
+    .PARAMETER Thumbprint
+        The thumbprint to normalize.
+
+    .NOTES
+        Autor: Timon Först
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        $Thumbprint
+    )
+
+    $thumbprintText = [string]$Thumbprint
+    if ([string]::IsNullOrWhiteSpace($thumbprintText)) {
+        throw 'Thumbprint must not be empty.'
+    }
+
+    return ($thumbprintText -replace '\s', '').ToUpperInvariant()
+}
+
+function Assert-TrustedCertificateThumbprint {
+    <#
+    .SYNOPSIS
+        Verifies that a certificate file matches the pinned release certificate allowlist.
+
+    .DESCRIPTION
+        Loads the certificate from disk and compares its thumbprint against the
+        allowlisted thumbprints embedded in the installer.
+
+    .PARAMETER CertificatePath
+        Full path to the certificate file that should be validated.
+
+    .PARAMETER TrustedThumbprint
+        One or more allowed certificate thumbprints.
+
+    .NOTES
+        Autor: Timon Först
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$CertificatePath,
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$TrustedThumbprint
+    )
+
+    $certificate = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CertificatePath)
+    $normalizedThumbprint = Get-NormalizedThumbprint -Thumbprint $certificate.Thumbprint
+    $allowedThumbprints = @($TrustedThumbprint | ForEach-Object {
+            Get-NormalizedThumbprint -Thumbprint $_
+        })
+
+    if ($normalizedThumbprint -notin $allowedThumbprints) {
+        throw "Downloaded certificate thumbprint '$normalizedThumbprint' is not trusted. Update the installer allowlist before trusting a new signing certificate."
+    }
+
+    return $certificate
+}
+
+function Assert-TrustedModuleSignature {
+    <#
+    .SYNOPSIS
+        Verifies a module Authenticode signature against the pinned signer allowlist.
+
+    .DESCRIPTION
+        Ensures the signature is valid and that the signer certificate thumbprint
+        matches the installer allowlist.
+
+    .PARAMETER Signature
+        Result object from Get-AuthenticodeSignature.
+
+    .PARAMETER TrustedThumbprint
+        One or more allowed signer thumbprints.
+
+    .NOTES
+        Autor: Timon Först
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        $Signature,
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$TrustedThumbprint
+    )
+
+    if ($Signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+        throw "Module signature is invalid. Status: $($Signature.Status) - $($Signature.StatusMessage)"
+    }
+
+    if (-not $Signature.SignerCertificate -or [string]::IsNullOrWhiteSpace($Signature.SignerCertificate.Thumbprint)) {
+        throw 'Module signature does not expose a signer certificate thumbprint.'
+    }
+
+    $normalizedThumbprint = Get-NormalizedThumbprint -Thumbprint $Signature.SignerCertificate.Thumbprint
+    $allowedThumbprints = @($TrustedThumbprint | ForEach-Object {
+            Get-NormalizedThumbprint -Thumbprint $_
+        })
+
+    if ($normalizedThumbprint -notin $allowedThumbprints) {
+        throw "Module signer thumbprint '$normalizedThumbprint' is not trusted."
+    }
+}
 
 function Get-ReleaseAssetDownloadUri {
     <#
@@ -307,8 +421,8 @@ function Add-CertificateToStoreIfMissing {
     }
     # Remove stale TrustedPublisher certificates with the same subject
     Get-ChildItem -Path $tpPath |
-        Where-Object { $_.Subject -eq $certificate.Subject -and $_.Thumbprint -ne $certificate.Thumbprint } |
-        ForEach-Object { Remove-Item -Path "$tpPath\$($_.Thumbprint)" -Force }
+    Where-Object { $_.Subject -eq $certificate.Subject -and $_.Thumbprint -ne $certificate.Thumbprint } |
+    ForEach-Object { Remove-Item -Path "$tpPath\$($_.Thumbprint)" -Force }
 
     # Root: certutil.exe -addstore/-delstore is the only silent option when elevated
     $rootPath = 'Cert:\LocalMachine\Root'
@@ -318,8 +432,8 @@ function Add-CertificateToStoreIfMissing {
     }
     # Remove stale Root certificates with the same subject
     Get-ChildItem -Path $rootPath |
-        Where-Object { $_.Subject -eq $certificate.Subject -and $_.Thumbprint -ne $certificate.Thumbprint } |
-        ForEach-Object { Invoke-CertutilDelete -StoreName 'Root' -Thumbprint $_.Thumbprint }
+    Where-Object { $_.Subject -eq $certificate.Subject -and $_.Thumbprint -ne $certificate.Thumbprint } |
+    ForEach-Object { Invoke-CertutilDelete -StoreName 'Root' -Thumbprint $_.Thumbprint }
 }
 
 function Invoke-Certutil {
@@ -383,14 +497,13 @@ function Import-RemoteSignedDeploymentModule {
     $certificateRemoteUri = Get-ReleaseAssetDownloadUri -AssetName $CertificateFileName -ReleaseVersion $ModuleVersionPin
 
     Save-RemoteFile -Uri $certificateRemoteUri -DestinationPath $CertificateLocalPath
+    Assert-TrustedCertificateThumbprint -CertificatePath $CertificateLocalPath -TrustedThumbprint $TrustedCertificateThumbprints | Out-Null
     Add-CertificateToStoreIfMissing -CertificatePath $CertificateLocalPath
 
     Save-RemoteFile -Uri $moduleRemoteUri -DestinationPath $ModuleLocalPath
 
     $signature = Get-AuthenticodeSignature -FilePath $ModuleLocalPath
-    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw "Module signature is invalid. Status: $($signature.Status) - $($signature.StatusMessage)"
-    }
+    Assert-TrustedModuleSignature -Signature $signature -TrustedThumbprint $TrustedCertificateThumbprints
 
     Import-Module -Name $ModuleLocalPath -Force -ErrorAction Stop
 }
@@ -419,8 +532,11 @@ catch {
     }
 
     $fallbackSignature = Get-AuthenticodeSignature -FilePath $fallbackLocalModule
-    if ($fallbackSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw "Remote module loading failed: $remoteError - fallback module at '$fallbackLocalModule' is also unusable (Signature: $($fallbackSignature.Status) - $($fallbackSignature.StatusMessage))."
+    try {
+        Assert-TrustedModuleSignature -Signature $fallbackSignature -TrustedThumbprint $TrustedCertificateThumbprints
+    }
+    catch {
+        throw "Remote module loading failed: $remoteError - fallback module at '$fallbackLocalModule' is also unusable ($($_.Exception.Message))."
     }
 
     Import-Module -Name $fallbackLocalModule -Force -ErrorAction Stop
@@ -483,6 +599,10 @@ Invoke-DeploymentWorkflow -ModeHandler {
             Set-InventorProjectFile
             # alternative: Set-InventorProjectFile -File "C:\Vault_Work\CDN_Vault\CDN_Vault.ipj"
             # Set-InventorProjectFile -File "C:\Vault_Work\CDN_Vault\CDN_Vault.ipj"
+
+            # Dismount wim and delete local wim file
+            # Dismount-WIM -purge
+            Dismount-WIM
         }
         'Update' {
             # mount wim from network
@@ -492,6 +612,9 @@ Invoke-DeploymentWorkflow -ModeHandler {
             Install-Update
             # copy local configuration files (e.g. license files)
             Copy-Local
+
+            # Dismount wim from network
+            Dismount-WIM
         }
         'Uninstall' {
             # Uninstall all CIDEON Tools with windows Installer
