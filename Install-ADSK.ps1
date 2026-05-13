@@ -84,11 +84,11 @@
     For development/testing use only - do NOT use in production environments.
 .EXAMPLE
 cd \\SERVER\SHARE\ScriptLocation
-.\WIM-AppDeploy.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
+.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
 
 #When using "CMD" instead of powershell (as admin):
 cd \\SERVER\SHARE\ScriptLocation
-powershell.exe -ExecutionPolicy Bypass .\WIM-AppDeploy.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
+powershell.exe -ExecutionPolicy Bypass .\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
 
 # Pin remote module to release version 1.2.0 (default is latest release):
 .\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -ModuleVersionPin "1.2.0"
