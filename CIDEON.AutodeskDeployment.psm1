@@ -464,6 +464,13 @@ function Install-Update {
     foreach ($file in $files) {
         $executable = $file.FullName
         $updateLogFile = $script:LogFile
+
+        # unblock files downloaded from the internet before installation
+        if (Test-Path -LiteralPath "$($file.FullName):Zone.Identifier") {
+            Write-InstallLog -text "Unblocking downloaded file: $($file.Name)" -Info
+            Unblock-File -Path $file.FullName
+        }
+
         if ($file.Name -like '*msi') {
             $updateLogFile = [System.IO.Path]::Combine($LocalFolder, "Install_Autodesk_$Version`_$([System.IO.Path]::GetFileNameWithoutExtension($file.Name)).log")
             $arguments = "/i ""$($file.FullName)"" /qn /norestart /l*v ""$updateLogFile"""
