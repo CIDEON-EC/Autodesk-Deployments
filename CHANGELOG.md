@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.0-beta.5]
 
 ### Added
-- Unblock file in Install-Updates if necessary
+- Unblock file in Install-Updates if necessary #15
 
 
 ## [2.0.0-beta.4]
