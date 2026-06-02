@@ -224,6 +224,7 @@ You can find this in the file itself, but here is an overview.
 | **Purge** | Switch | ❌ | `$false` | Delete WIM file after completion (cannot be combined with `-NoDownload`) |
 | **WhatIf** | Switch | ❌ | `$false` | Dry run mode: shows what would happen without making changes |
 | **Confirm** | Switch | ❌ | `$false` | Prompts for confirmation before executing actions |
+| **ForceQuit** | Switch | ❌ | `$false` | Quits running Autodesk Applications (Inventor, AutoCAD, Vault) |
 <br><br><br>
 
 ### How can I call the Install-ADSK?
