@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-beta.8]
+
+### Fixed
+- Install-ADSK.ps1: Using Logging only inside of Invoke-DeploymentWorkflow
+- Install-ADSK.ps1: Check of running Autodesk programms hard end inside trap
+
 ## [2.0.0-beta.7]
 
 ### Added

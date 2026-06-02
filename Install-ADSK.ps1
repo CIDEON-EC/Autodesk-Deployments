@@ -559,20 +559,6 @@ Set-InstallContext -Context @{
     Purge       = $Purge
 }
 
-# Check for running Autodesk processes before starting installation. If ForceQuit is enabled, attempt to stop them silently.
-if ($ForceQuit) {
-    Write-InstallLog -Text 'ForceQuit is enabled, so the script will attempt to terminate any running Autodesk processes without confirmation.' -Info
-    $success = Stop-AutodeskProcess -Force
-    if (-not $success) {
-        Write-InstallLog -Text 'Failed to stop all Autodesk processes. Installation may be blocked.' -Fail
-        throw 'Failed to stop all Autodesk processes. Installation may be blocked.'
-    }
-}
-# if processes are still running, log and throw an error
-elseif (Test-AutodeskProcessesRunning) {
-    Write-InstallLog -Text 'Autodesk processes are running. Please close all Autodesk applications before running the script or start the script with -ForceQuit to terminate them.' -Fail
-    throw 'Autodesk processes are running. Please close all Autodesk applications before running the script or start the script with -ForceQuit to terminate them.'
-}
 
 
 #endregion
@@ -583,8 +569,30 @@ Invoke-DeploymentWorkflow -ModeHandler {
     # Global error handling for each mode. If an error occurs, it will be logged and the script will continue with the next step.
     trap {
         Write-InstallLog -Text "Error in '$Mode' Mode: $($_.Exception.Message)" -Fail
+        if ($_.Exception.Data['HardAbort']) {
+            throw
+        }
         Write-InstallLog -Text 'Installation will continue without the last step' -Info
         continue
+    }
+
+    # Check for running Autodesk processes before starting installation. If ForceQuit is enabled, attempt to stop them silently.
+    if ($ForceQuit) {
+        Write-InstallLog -Text 'ForceQuit is enabled, so the script will attempt to terminate any running Autodesk processes without confirmation.' -Info
+        $success = Stop-AutodeskProcess -Force
+        if (-not $success) {
+            Write-InstallLog -Text 'Failed to stop all Autodesk processes. Installation may be blocked.' -Fail
+            $hardError = [System.Exception]::new('Failed to stop all Autodesk processes. Installation may be blocked.')
+            $hardError.Data['HardAbort'] = $true
+            throw $hardError
+        }
+    }
+    # if processes are still running, log and throw an error
+    elseif (Test-AutodeskProcessesRunning) {
+        Write-InstallLog -Text 'Autodesk processes are running. Please close all Autodesk applications before running the script or start the script with -ForceQuit to terminate them.' -Fail
+        $hardError = [System.Exception]::new('Autodesk processes are running. Please close all Autodesk applications before running the script or start the script with -ForceQuit to terminate them.')
+        $hardError.Data['HardAbort'] = $true
+        throw $hardError
     }
 
 

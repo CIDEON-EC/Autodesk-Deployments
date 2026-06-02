@@ -255,6 +255,9 @@ function Invoke-DeploymentWorkflow {
         catch {
             Write-InstallLog -text "By $Mode" -Fail
             Write-InstallLog -text "$($_.Exception.Message) in line $($_.InvocationInfo.ScriptLineNumber)" -Fail
+            if ($_.Exception.Data['HardAbort']) {
+                throw
+            }
         }
         finally {
             try {
