@@ -570,7 +570,7 @@ Invoke-DeploymentWorkflow -ModeHandler {
     trap {
         Write-InstallLog -Text "Error in '$Mode' Mode: $($_.Exception.Message)" -Fail
         if ($_.Exception.Data['HardAbort']) {
-            throw
+            throw $_
         }
         Write-InstallLog -Text 'Installation will continue without the last step' -Info
         continue

@@ -3,7 +3,8 @@
     CIDEON Autodesk Deployment helper functions.
 .NOTES
     Author: Timon Först
-    ModuleVersion: 2.0.0
+    # Module Version is set by workflow during build and should not be edited manually
+    ModuleVersion: 0.0.0
 #>
 
 Set-StrictMode -Version 3.0
@@ -256,7 +257,7 @@ function Invoke-DeploymentWorkflow {
             Write-InstallLog -text "By $Mode" -Fail
             Write-InstallLog -text "$($_.Exception.Message) in line $($_.InvocationInfo.ScriptLineNumber)" -Fail
             if ($_.Exception.Data['HardAbort']) {
-                throw
+                throw $_
             }
         }
         finally {
