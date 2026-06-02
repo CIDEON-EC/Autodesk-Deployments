@@ -3,7 +3,7 @@
     CIDEON Autodesk Deployment helper functions.
 .NOTES
     Author: Timon Först
-    ModuleVersion: 1.2.0
+    ModuleVersion: 2.0.0
 #>
 
 Set-StrictMode -Version 3.0
@@ -39,6 +39,98 @@ function Set-InstallContext {
     foreach ($entry in $Context.GetEnumerator()) {
         Set-Variable -Name $entry.Key -Value $entry.Value -Scope Global
     }
+
+}
+
+function Get-AutodeskProcesses {
+    <#
+    .SYNOPSIS
+        Get all relevant Autodesk processes.
+
+    .DESCRIPTION
+        Returns all running processes for Inventor, AutoCAD and Vault.
+
+    .OUTPUTS
+        System.Diagnostics.Process
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Diagnostics.Process])]
+    param()
+
+    # Proccess without .exe extension
+    $checkProcesses = @('Inventor', 'acad', 'Connectivity.VaultPro', 'Connectivity.Vault', 'JobProcessor')
+    Get-Process -Name $checkProcesses -ErrorAction SilentlyContinue
+}
+
+function Test-AutodeskProcessesRunning {
+    <#
+    .SYNOPSIS
+        Checks if Inventor, AutoCAD and Vault are currently running.
+
+    .DESCRIPTION
+        Checks if the processes inventor.exe, acad.exe and vault.exe are active.
+        Returns $true if at least one process is found; otherwise $false.
+
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    return $null -ne (Get-AutodeskProcesses)
+}
+
+function Stop-AutodeskProcess {
+    <#
+    .SYNOPSIS
+        Stops all relevant Autodesk processes.
+
+    .DESCRIPTION
+        Attempts to stop all running Autodesk processes.
+
+    .PARAMETER Force
+        Forces the termination of the processes.
+
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([bool])]
+    param(
+        [switch]$Force
+    )
+
+    $processes = Get-AutodeskProcesses
+    if (-not $processes) {
+        return $true
+    }
+
+    $skippedDueToShouldProcess = $false
+    foreach ($process in $processes) {
+        if (-not $PSCmdlet.ShouldProcess("$($process.Name) (Id $($process.Id))", 'Stop')) {
+            $skippedDueToShouldProcess = $true
+            continue
+        }
+        try {
+            if ($Force) {
+                Stop-Process -Id $process.Id -Force -ErrorAction Stop
+            }
+            else {
+                Stop-Process -Id $process.Id -ErrorAction Stop
+            }
+        }
+        catch {
+            Write-Verbose "Could not stop process $($process.Name) (Id $($process.Id)): $_"
+        }
+    }
+
+    $remainingProcesses = Get-AutodeskProcesses
+    # If no remaining processes, success. Also treat being skipped by ShouldProcess as success
+    if ($null -eq $remainingProcesses -or $skippedDueToShouldProcess) {
+        return $true
+    }
+    return $false
 }
 
 function Invoke-DeploymentWorkflow {
@@ -445,10 +537,17 @@ function Install-Update {
     # get all updates in folder
     Write-InstallLog -text 'Updates will be installed' -Info
     $filepath = [System.IO.Path]::Combine($Path, 'Updates')
-    $excludePatterns = @('*.txt', '*.xml', 'VBA')
+    $excludePatterns = @('*.txt', '*.xml')
 
     if (-not $WhatIfPreference -or (Test-Path -Path $filepath)) {
-        $files = @(Get-ChildItem -Path $filepath -Exclude $excludePatterns -File)
+        $files = Get-ChildItem -Path $filepath -Exclude $excludePatterns | Where-Object {
+            if ($null -ne $_ -and ($_.PSObject.Properties.Match('PSIsContainer').Count -gt 0)) {
+                -not $_.PSIsContainer
+            }
+            else {
+                $true
+            }
+        }
     }
     else {
         $files = Get-CachedFiles -Path $filepath -OperationText 'Would install updates from' -CachedFiles $Script:CachedUpdateFiles

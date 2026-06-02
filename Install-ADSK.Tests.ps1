@@ -63,6 +63,17 @@ BeforeAll {
         Set-Item -Path 'function:global:Test-IsElevated' -Value { $true }
     }
 
+    if (-not (Get-Command -Name Stop-AutodeskProcess -ErrorAction SilentlyContinue)) {
+        Set-Item -Path 'function:global:Stop-AutodeskProcess' -Value {
+            param([switch]$Force)
+            return $true
+        }
+    }
+
+    if (-not (Get-Command -Name Test-AutodeskProcessesRunning -ErrorAction SilentlyContinue)) {
+        Set-Item -Path 'function:global:Test-AutodeskProcessesRunning' -Value { $false }
+    }
+
     if (-not (Get-Command -Name Invoke-Certutil -ErrorAction SilentlyContinue)) {
         Set-Item -Path 'function:global:Invoke-Certutil' -Value {
             param([string]$AddStore, [string]$FilePath)

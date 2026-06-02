@@ -38,7 +38,8 @@
                 "-Logging",
                 "-WhatIf",
                 "-SkipSignatureCheck",
-                "-NoDownload"
+                "-NoDownload",
+                "-ForceQuit"
             ]
         }
     ]

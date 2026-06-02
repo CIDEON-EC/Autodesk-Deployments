@@ -79,6 +79,8 @@
     Prompts for confirmation before executing each action.
 .PARAMETER Quiet
     Suppresses output messages.
+.PARAMETER ForceQuit
+    Kill processes that block installation silently without confirmation prompts. Use with caution. (e.g. Inventor, AutoCAD or Vault)
 .PARAMETER SkipSignatureCheck
     Skips Authenticode signature validation for the local fallback module.
     For development/testing use only - do NOT use in production environments.
@@ -146,6 +148,9 @@ param (
 
     [Parameter(Mandatory = $false, HelpMessage = 'Suppresses output messages')]
     [switch]$Quiet,
+
+    [Parameter(Mandatory = $false, HelpMessage = 'Kill processes that block installation silently without confirmation prompts. Use with caution. (e.g. Inventor, AutoCAD or Vault)')]
+    [switch]$ForceQuit,
 
     [Parameter(Mandatory = $false, HelpMessage = 'Skips Authenticode signature validation for the local fallback module. For development use only.')]
     [switch]$SkipSignatureCheck
@@ -553,6 +558,22 @@ Set-InstallContext -Context @{
     NoDownload  = $NoDownload
     Purge       = $Purge
 }
+
+# Check for running Autodesk processes before starting installation. If ForceQuit is enabled, attempt to stop them silently.
+if ($ForceQuit) {
+    Write-InstallLog -Text 'ForceQuit is enabled, so the script will attempt to terminate any running Autodesk processes without confirmation.' -Info
+    $success = Stop-AutodeskProcess -Force
+    if (-not $success) {
+        Write-InstallLog -Text 'Failed to stop all Autodesk processes. Installation may be blocked.' -Fail
+        throw 'Failed to stop all Autodesk processes. Installation may be blocked.'
+    }
+}
+# if processes are still running, log and throw an error
+elseif (Test-AutodeskProcessesRunning) {
+    Write-InstallLog -Text 'Autodesk processes are running. Please close all Autodesk applications before running the script or start the script with -ForceQuit to terminate them.' -Fail
+    throw 'Autodesk processes are running. Please close all Autodesk applications before running the script or start the script with -ForceQuit to terminate them.'
+}
+
 
 #endregion
 

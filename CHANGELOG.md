@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-beta.7]
+
+### Added
+- CIDEON.AutodeskDeployment.psm1: New Functions added Get-AutodeskProcesses, Test-AutodeskProcessesRunning, Stop-AutodeskProcess #18
+- Install-ADSK.ps1: Added pre check for running Autodesk applications (Inventor, AutoCAD, Vault) before start. If application is running, the installation will aborted #18
+- Install-ADSK.ps1: Added new parameter -ForceQuit to force quit running Autodesk applications (Inventor, AutoCAD, Vault) #18
+
+### Fixed
+- Install-Update: Exclude pattern fixed, always exclude folders. Removed unnecessary VBA folder #16
+
 ## [2.0.0-beta.6]
 
 ### Added
