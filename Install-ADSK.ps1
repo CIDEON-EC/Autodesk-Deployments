@@ -4,7 +4,7 @@
 
 .NOTES
     Author: Timon Först
-    Version: 1.1.1
+    Version: 2.0.0
 
 .DESCRIPTION
     Automation of downloading a wim file to a temporary local folder. After
@@ -185,9 +185,6 @@ $CertificateLocalPath = Join-Path -Path $ModuleCacheFolder -ChildPath $Certifica
 $TrustedCertificateThumbprints = @(
     '53D03841EC43C1C545F56919F9A6AEF0C7D2E783'
 )
-
-# Example for pinned remote module release:
-# .\Install-ADSK.ps1 -WIM "PDC_2026" -Mode "Install" -ModuleVersionPin "1.2.0"
 
 function Get-NormalizedThumbprint {
     <#

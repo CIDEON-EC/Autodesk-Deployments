@@ -268,8 +268,10 @@ cd \\SERVER\SHARE\ScriptLocation
 
 | Function | Description | Required Parameters | Optional Parameters |
 |----------|-------------|-------------------|-------------------|
+| **Set-InstallContext** | Stores deployment context values (Version, LogFile, wimFile, mountPath, etc.) as global variables so all module functions share state | `Context` | - |
 | **Invoke-DeploymentWorkflow** | Orchestrates the full WIM deployment lifecycle (version validation, logging, WIM discovery, mount/dismount, error handling) and invokes a caller-supplied ScriptBlock for mode-specific logic | `ModeHandler` | - |
 | **Write-InstallLog** | Writes log entries to file (if logging enabled) | `text` | `Info`, `Fail` |
+| **Write-InstallProgress** | Writes compact progress status to the host; suppressed when `-Quiet` is active | `Text` | `Fail` |
 | **Update-WIMInspectionCache** | Inspects and caches WIM folder/file metadata for later use | `MountedPath` | - |
 | **Get-CachedFiles** | Returns cached file-like entries for WhatIf scenarios | `Path`, `OperationText` | `CachedFiles` |
 | **Install-Update** | Installs updates from Updates subfolder | - | `Path` |
@@ -294,11 +296,14 @@ cd \\SERVER\SHARE\ScriptLocation
 | **Register-WIMDismountTask** | Registers scheduled task for WIM dismount | - | - |
 | **Set-AutodeskUpdate** | Configures Autodesk update settings | One of: `Enable`, `ShowOnly`, `Disable` | - |
 | **Get-AppLogError** | Retrieves application log errors | - | - |
+| **Get-AutodeskProcesses** | Returns all running Autodesk processes (Inventor, AutoCAD, Vault, JobProcessor) | - | - |
+| **Test-AutodeskProcessesRunning** | Checks whether any Autodesk processes are currently running; returns `$true` if at least one is found | - | - |
+| **Stop-AutodeskProcess** | Stops all running Autodesk processes; used by `-ForceQuit` in Install-ADSK.ps1 | - | `Force` |
 
 ### Function Categories
 
 #### **Orchestration**
-- `Invoke-DeploymentWorkflow`
+- `Set-InstallContext`, `Invoke-DeploymentWorkflow`
 
 #### **Installation & Deployment**
 - `Install-AutodeskDeployment`, `Uninstall-AutodeskDeployment`, `Set-AutodeskDeployment`
@@ -320,5 +325,8 @@ cd \\SERVER\SHARE\ScriptLocation
 #### **File & Registry Operations**
 - `Copy-Local`, `Remove-UserSystemVariable`, `Rename-RegistryInstallationPath`
 
+#### **Process Management**
+- `Get-AutodeskProcesses`, `Test-AutodeskProcessesRunning`, `Stop-AutodeskProcess`
+
 #### **Utilities**
-- `Write-InstallLog`, `Uninstall-Program`
+- `Write-InstallLog`, `Write-InstallProgress`, `Uninstall-Program`
