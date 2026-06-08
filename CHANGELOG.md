@@ -5,53 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0-beta.9]
-
-### Fixed
-- Install-ADSK.ps1: Throw inside Invoke-DeploymentWorkflow not hanging anymore
-
-## [2.0.0-beta.8]
-
-### Fixed
-- Install-ADSK.ps1: Using Logging only inside of Invoke-DeploymentWorkflow
-- Install-ADSK.ps1: Check of running Autodesk programms hard end inside trap
-
-## [2.0.0-beta.7]
-
-### Added
-- CIDEON.AutodeskDeployment.psm1: New Functions added Get-AutodeskProcesses, Test-AutodeskProcessesRunning, Stop-AutodeskProcess #18
-- Install-ADSK.ps1: Added pre check for running Autodesk applications (Inventor, AutoCAD, Vault) before start. If application is running, the installation will aborted #18
-- Install-ADSK.ps1: Added new parameter -ForceQuit to force quit running Autodesk applications (Inventor, AutoCAD, Vault) #18
-
-### Fixed
-- Install-Update: Exclude pattern fixed, always exclude folders. Removed unnecessary VBA folder #16
-
-## [2.0.0-beta.6]
-
-### Added
-- Unblock file in Install-Updates if necessary #15
-
-
-## [2.0.0-beta.4]
-
-### Security
-- `Add-CertificateToStoreIfMissing` now removes stale certificates with the same subject from `LocalMachine\TrustedPublisher` and `LocalMachine\Root` after installing a new certificate, preventing accumulation of outdated trust anchors
-- `Install-ADSK.ps1` now validates the downloaded release certificate against a pinned thumbprint allowlist before importing it into the machine certificate stores and also pins the module signer thumbprint during remote and local fallback module validation
-
-### Added
-- Added Pester regression tests for rejecting unpinned release certificates and modules signed by an unexpected signer certificate in `Install-ADSK.ps1`
-
-## [2.0.0-beta.3] - 2026-03-18
-
-### Fixed
-- Zertificate issues
-## [2.0.0-beta.2] - 2026-03-18
-
-### Fixed
-- Zertificate issues
-
-## [2.0.0-beta.1] - 2026-03-18
-
+## [2.0.0] - 2026-06-08
 ### Added
 - Complete new introduction of using a PowerShell module, instead of one script [#5](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/5)
 - New Pester unit tests covering key functions: `Mount-WIM`, `Dismount-WIM`, `Install-Update`, `Install-AutodeskDeployment`, `Get-CachedFiles` and `Set-AutodeskUpdate` (risk‑based P0/P1 matrix)
@@ -61,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added trap to avoid terminating the script for strange errors [#10](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/10)
 - Added compact console progress output [#11](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/11)
 - Progress output will suppressed when `-Quiet` is used in `Install-ADSK.ps1`.
+- Added Pester regression tests for rejecting unpinned release certificates and modules signed by an unexpected signer certificate in `Install-ADSK.ps1`
+- Unblock file in Install-Updates if necessary #15
+- CIDEON.AutodeskDeployment.psm1: New Functions added Get-AutodeskProcesses, Test-AutodeskProcessesRunning, Stop-AutodeskProcess #18
+- Install-ADSK.ps1: Added pre check for running Autodesk applications (Inventor, AutoCAD, Vault) before start. If application is running, the installation will aborted #18
+- Install-ADSK.ps1: Added new parameter -ForceQuit to force quit running Autodesk applications (Inventor, AutoCAD, Vault) #18
 
 
 ### Changed
@@ -75,9 +34,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Install-Update` now guards against `$null` file lists by coercing results to an array; prevents runtime errors during WhatIf/empty-cache scenarios (covered by new unit test)
 - Fixed calling folders as installation [#9](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/9)
 - Install-AutodeskDeployment now creates missing LoggingSettings XML nodes correctly under module strict mode before saving the deployment config, and falls back to Image/Collection.xml if no explicit config list is present.
+- Install-Update: Exclude pattern fixed, always exclude folders. Removed unnecessary VBA folder #16
+- Install-ADSK.ps1: Using Logging only inside of Invoke-DeploymentWorkflow
+- Install-ADSK.ps1: Check of running Autodesk programms hard end inside trap
+- Install-ADSK.ps1: Throw inside Invoke-DeploymentWorkflow not hanging anymore
 
 ### Documentation
 - Added or completed comment-based help (`.SYNOPSIS`, `.DESCRIPTION`, `.PARAMETER`, `.EXAMPLE`, `.NOTES`) for all module functions: `Set-InstallContext`, `Get-RealUserName`, `Get-UserSID`, `Set-InventorProjectFile`
+
+### Security
+- `Add-CertificateToStoreIfMissing` now removes stale certificates with the same subject from `LocalMachine\TrustedPublisher` and `LocalMachine\Root` after installing a new certificate, preventing accumulation of outdated trust anchors
+- `Install-ADSK.ps1` now validates the downloaded release certificate against a pinned thumbprint allowlist before importing it into the machine certificate stores and also pins the module signer thumbprint during remote and local fallback module validation
+
 
 ## [1.1.2] - 2026-03-04
 ### Changed
