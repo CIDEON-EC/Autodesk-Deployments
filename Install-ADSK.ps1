@@ -609,7 +609,7 @@ Invoke-DeploymentWorkflow -ModeHandler {
             Mount-WIM
 
             # install autodesk software
-            Install-AutodeskDeployment -ConfigFile INVVLT
+            Install-AutodeskDeployment
 
             # set Autodesk Update mode
             Set-AutodeskUpdate -Disable
@@ -618,7 +618,7 @@ Invoke-DeploymentWorkflow -ModeHandler {
             Install-Update
 
             # install CIDEON Tools
-            Install-CIDEONTool -VaultToolboxStandard -VaultToolboxPro -VaultToolboxObserver -VaultToolboxUpdate
+            Install-CIDEONTool -VaultToolboxStandard -VaultToolboxPro -VaultToolboxObserver
             # disable standard vault toolbox jobs and events
             Disable-VaultExtension
             # copy local configuration files (e.g. license files)
