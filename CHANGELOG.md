@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Changed
+- **BREAKING**: The code-signing certificate is no longer installed into `LocalMachine\Root`. Module authenticity is verified via the pinned signer thumbprint allowlist instead of Authenticode chain trust; signature statuses `NotTrusted` and `UnknownError` are accepted when the file hash is intact and the signer thumbprint is pinned (`NotSigned`, `HashMismatch` and all other statuses are still rejected). Existing machines keep any previously installed Root certificate; new installs no longer add one.
+- `Uninstall-Program` rewrites MSI uninstall strings to `msiexec /x {ProductCode}` (previously the registry `UninstallString` with `/I` was executed, which performs a silent repair instead of an uninstall); executable paths containing hyphens and bare uninstaller executables without arguments are now handled correctly
+- `Set-AutodeskUpdate` writes the ODIS policy to the interactively logged-on user's registry hive (`HKEY_USERS\<SID>`) instead of the elevated account's `HKCU`, falling back to `HKCU` when the user SID cannot be resolved
+- `Copy-WIM` re-copies the WIM when the existing local file differs from the source in size or modification time (previously any existing local file was reused without validation)
+- `Get-AppLogError` uses server-side event log filtering (`-FilterHashtable`) instead of loading the entire Application log
+- CI: the release job now requires the new `test` job (Pester + PSScriptAnalyzer on windows-latest) to pass; PRs and pushes to `main` are gated as well
+
+### Fixed
+- `Copy-Local.ps1` re-encoded as UTF-8 (was BOM-less UTF-16 and unparseable) and its module loader now enforces the same pinned certificate-thumbprint and signer validation as `Install-ADSK.ps1`; the `-Logging` parameter creates `Path\_LOG\Copy-Local-<COMPUTERNAME>.log` again
+- `Install-ADSK.ps1`: failures in `Copy-WIM`/`Mount-WIM` now hard-abort the workflow instead of being swallowed by the mode handler trap and continuing installation against an unmounted directory
+- `Set-AutodeskUpdate` throws a terminating error when none of `-Enable`/`-ShowOnly`/`-Disable` is specified (previously crashed under strict mode with an undefined value)
+- `Set-AutodeskDeployment` honors `-WhatIf`/`ShouldProcess` for `-Remove` package deletion and no longer saves the XML when the operation was declined
+- `Get-RealUserName` returns a single string (previously could emit two objects when user detection failed)
+- `Install-AutodeskDeployment` quotes the deployment config path and waits on the started installer process instead of any process named `Installer`; fixed "Deplyoment" typo in the installer log file name
+- CI: version stamping used `[regex]::Replace(..., 1)` whose fourth argument is `RegexOptions.IgnoreCase`, not a replacement count — now uses an instance `Regex` with an explicit count of 1
+
+### Security
+- The module cache folder under `ProgramData` is created with a restricted ACL (SYSTEM and Administrators only, inheritance disabled) to prevent non-admin users from swapping the cached module between signature validation and import
+
 ## [2.0.0] - 2026-06-08
 ### Added
 - Complete new introduction of using a PowerShell module, instead of one script [#5](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/5)

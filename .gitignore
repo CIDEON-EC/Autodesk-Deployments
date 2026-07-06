@@ -46,7 +46,21 @@ notes.txt
 draft.*
 TODO.md
 
-# certificate files
+# certificate files (private key material - the public .cer release asset stays tracked)
 *.pfx
 *.p12
 *.key
+*.pem
+
+# environment / credential files
+.env
+.env.*
+*credentials*.json
+
+# machine-local Claude Code settings (personal permission grants)
+.claude/settings.local.json
+
+# deployment log folders created by Install-ADSK.ps1 / Copy-Local.ps1 (contain computer names)
+_LOG/
+# local editor workspace files
+*.code-workspace

@@ -710,7 +710,7 @@ function Install-AutodeskDeployment {
     foreach ($ConfigFullFilename in $configFiles) {
         Write-InstallLog -text "Started Installation of ConfigFile: $ConfigFullFilename" -Info
         $configName = Split-Path $ConfigFullFilename -Leaf
-        $deploymentLogPath = [System.IO.Path]::Combine($LogFolder, "Install-ADSK-Deplyoment-$DeploymentName.log")
+        $deploymentLogPath = [System.IO.Path]::Combine($LogFolder, "Install-ADSK-Deployment-$DeploymentName.log")
 
         if (-not (Test-Path -Path $ConfigFullFilename -PathType Leaf)) {
             Write-InstallLog -text "Config file not found: $ConfigFullFilename" -Fail
@@ -760,12 +760,18 @@ function Install-AutodeskDeployment {
         }
 
         $installerPath = [System.IO.Path]::Combine($Path, 'Image', 'Installer.exe')
-        $installerArgs = "-i deploy --offline_mode -q -o $ConfigFullFilename"
+        $installerArgs = "-i deploy --offline_mode -q -o `"$ConfigFullFilename`""
         if ($PSCmdlet.ShouldProcess($configName, "Install Autodesk Deployment with arguments: $installerArgs")) {
             Write-InstallProgress -Text "Starting Autodesk deployment: $configName"
-            Start-Process -FilePath $installerPath -ArgumentList $installerArgs -PassThru | Out-Null
-            # Waiting
-            Wait-Process -Name 'Installer'
+            $process = Start-Process -FilePath $installerPath -ArgumentList $installerArgs -PassThru -ErrorAction Stop
+            if ($process) {
+                try {
+                    $process.WaitForExit()
+                }
+                catch {
+                    Write-InstallLog -text "Process wait error: $($_.Exception.Message)" -Fail
+                }
+            }
         }
     }
 
@@ -960,6 +966,7 @@ function Set-AutodeskDeployment {
             }
         }
         # Remove
+        $changesNeeded = $false
         if ($Remove.Length -gt 0) {
             foreach ($name in $Remove) {
                 # avoid XPath injection by not interpolating user input into XPath
@@ -972,17 +979,24 @@ function Set-AutodeskDeployment {
                     $packageName = $package.GetAttribute('name')
                     if ($PSCmdlet.ShouldProcess("Remove package $packageName from $xmlPath")) {
                         Write-InstallLog -text "Package $packageName will be removed" -Info
+                        $package.ParentNode.RemoveChild($package) | Out-Null
+                        $changesNeeded = $true
                     }
-                    # remove the package from the xml file (always, even if ShouldProcess is disabled)
-                    $package.ParentNode.RemoveChild($package) | Out-Null
                 }
             }
         }
 
-        # saving changes to xml
+        # saving changes to xml only if changes were made and not in WhatIf
         try {
-            $xml.Save($xmlPath)
-            Write-InstallLog -text "Saved changes to $xmlPath" -Info
+            if ($changesNeeded -or $Language.Length -gt 0) {
+                if (-not $WhatIfPreference) {
+                    $xml.Save($xmlPath)
+                    Write-InstallLog -text "Saved changes to $xmlPath" -Info
+                }
+                else {
+                    Write-InstallLog -text "Would save changes to $xmlPath (WhatIf mode)" -Info
+                }
+            }
         }
         catch {
             Write-InstallLog -text "Could not save changes to $xmlPath" -Fail
@@ -1206,14 +1220,11 @@ function Get-RealUserName {
     [CmdletBinding()]
     param ()
 
-    begin {}
-
     process {
         try {
             $normalUserName = $null
 
             if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-                # Temporarily disable WhatIf for CIM operations
                 $originalWhatIf = $WhatIfPreference
                 $WhatIfPreference = $false
 
@@ -1239,27 +1250,26 @@ function Get-RealUserName {
                     }
                 }
                 finally {
-                    # Restore original WhatIf preference
                     $WhatIfPreference = $originalWhatIf
                 }
 
                 if ([String]::IsNullOrEmpty($normalUserName)) {
-                    $normalUserName = $env:USERNAME
+                    $normalUserName = if ($env:USERNAME) { $env:USERNAME } else { [System.Environment]::UserName }
                 }
             }
             else {
-                $normalUserName = $env:USERNAME
+                $normalUserName = if ($env:USERNAME) { $env:USERNAME } else { [System.Environment]::UserName }
             }
         }
         catch {
             Write-InstallLog -text "Could not determine normal user name: $($_.Exception.Message)" -Fail
-            return $env:USERNAME
+            $normalUserName = if ($env:USERNAME) { $env:USERNAME } else { [System.Environment]::UserName }
         }
     }
 
     end {
         Write-InstallLog -text "Normal User Name is $normalUserName" -Info
-        return $normalUserName
+        return [string]$normalUserName
     }
 }
 
@@ -1615,31 +1625,63 @@ function Uninstall-Program {
     $installedProducts = Get-InstalledProgram -Publisher $Publisher -DisplayName $DisplayName -FilterOperator $FilterOperator
     foreach ($installedProduct in $installedProducts) {
         try {
-
-            # Write-InstallLog -text "$($installedProduct) will be uninstalled" -Info
-            # gets the string before the first / - this is the exe filepath
             $uninstaller = $installedProduct.UninstallString
-            # msiexec with / arguments
-            if ($uninstaller -match '/') {
-                $filePath = ($installedProduct.UninstallString -split '/' , 2)[0].Trim()
-                # gets the string after the first / - these are the arguments
-                # we have to add the first / again, and put quiet after the additional arguments
-                $arguments = '/' + $(($installedProduct.UninstallString -split '/' , 2)[1].Trim()) + ' /quiet /passive'
+            if ([string]::IsNullOrWhiteSpace($uninstaller)) {
+                Write-InstallLog -text "No UninstallString found for $($installedProduct.DisplayName)" -Fail
+                continue
+            }
+
+            $filePath = $null
+            $arguments = $null
+
+            # Check if this is msiexec by looking for "msiexec" in the string (case-insensitive)
+            if ($uninstaller -imatch 'msiexec') {
+                $filePath = 'msiexec.exe'
+                # Extract the GUID and rewrite /I to /X
+                if ($uninstaller -imatch '\{[A-F0-9-]+\}') {
+                    $guid = $matches[0]
+                    $arguments = "/x $guid /quiet /passive"
+                }
+                else {
+                    # Fallback: parse the original string by splitting on first space
+                    $parts = $uninstaller -split ' ', 2
+                    if ($parts.Count -gt 1) {
+                        $originalArgs = $parts[1].Trim() -replace '/I', '/X'
+                        $arguments = "$originalArgs /quiet /passive"
+                    }
+                }
             }
             else {
-                # ODIS Uninstaller with - arguments
-                $filePath = ($installedProduct.UninstallString -split '-' , 2)[0].Trim()
-                $arguments = '-' + $(($installedProduct.UninstallString -split '-' , 2)[1].Trim()) + ' -q'
+                # ODIS or other uninstaller: use original path and args
+                if ($uninstaller -match '^"([^"]+)"(.*)$') {
+                    $filePath = $matches[1]
+                    $arguments = $matches[2].Trim()
+                }
+                elseif ($uninstaller -match '^(\S+)(.*)$') {
+                    $filePath = $matches[1]
+                    $arguments = $matches[2].Trim()
+                }
+                # Bare executables without arguments still get the quiet flag
+                if ([string]::IsNullOrWhiteSpace($arguments)) {
+                    $arguments = '-q'
+                }
+                elseif ($arguments -notmatch '(^|\s)(-q|/quiet)') {
+                    $arguments = "$arguments -q"
+                }
             }
 
-            if ($PSCmdlet.ShouldProcess($installedProduct.DisplayName, "Uninstall with command: $filePath $arguments") -and
-                -not [string]::IsNullOrWhiteSpace($filePath)) {
+            if ([string]::IsNullOrWhiteSpace($filePath)) {
+                Write-InstallLog -text "Could not parse uninstall string for $($installedProduct.DisplayName): $uninstaller" -Fail
+                continue
+            }
+
+            if ($PSCmdlet.ShouldProcess($installedProduct.DisplayName, "Uninstall with command: $filePath $arguments")) {
                 Write-InstallProgress -Text "Uninstalling program: $($installedProduct.DisplayName)"
                 Start-Process -NoNewWindow -FilePath $filePath -ArgumentList $arguments -Wait
             }
         }
         catch {
-            Write-InstallLog -text "$($installedProduct.DisplayName) could not be uninstalled" -Fail
+            Write-InstallLog -text "$($installedProduct.DisplayName) could not be uninstalled: $($_.Exception.Message)" -Fail
         }
     }
 }
@@ -1907,11 +1949,23 @@ function Copy-WIM {
             $localwimFile = $File.FullName
         }
         else {
-            # check if wim file exists
+            # check if wim file exists and matches source by size and modification time
+            $shouldCopy = $true
             if ([System.IO.File]::Exists($localwimFile)) {
-                Write-InstallLog -text 'WIM file already exists, no download needed' -Info
+                $localInfo = Get-Item -Path $localwimFile
+                $sourceInfo = Get-Item -Path $File.FullName
+                # Compare sizes and modification time within 1 second tolerance for clock skew
+                if ($localInfo.Length -eq $sourceInfo.Length -and
+                    [Math]::Abs(($localInfo.LastWriteTime - $sourceInfo.LastWriteTime).TotalSeconds) -le 1) {
+                    Write-InstallLog -text 'WIM file already exists with matching size and timestamp, no download needed' -Info
+                    $shouldCopy = $false
+                }
+                else {
+                    Write-InstallLog -text "Local WIM differs from source (size: $($localInfo.Length) vs $($sourceInfo.Length), time: $($localInfo.LastWriteTime) vs $($sourceInfo.LastWriteTime)). Copying fresh copy." -Info
+                }
             }
-            else {
+
+            if ($shouldCopy) {
                 if ($PSCmdlet.ShouldProcess($File.FullName, "Copy WIM to $Folder")) {
                     Write-InstallLog -text "Copy $($File.FullName) to $Folder" -Info
                     Copy-Item $File.FullName $Folder -Force
@@ -2247,18 +2301,37 @@ function Set-AutodeskUpdate {
         [Switch]
         $Disable
     )
-    # Set Values Switch
+    $Value = $null
     if ($Enable) {
         $Value = 0
     }
-    if ($ShowOnly) {
+    elseif ($ShowOnly) {
         $Value = 2
     }
-    if ($Disable) {
+    elseif ($Disable) {
         $Value = 1
     }
-    # Path to Registry
+    else {
+        $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+            [System.ArgumentException]::new('One of -Enable, -ShowOnly, or -Disable must be specified.'),
+            'NoUpdateSettingSpecified',
+            [System.Management.Automation.ErrorCategory]::InvalidArgument,
+            $null
+        )
+        $PSCmdlet.ThrowTerminatingError($errorRecord)
+    }
+    # Resolve the interactively logged-on user's hive. Under elevation HKCU:
+    # points at the admin account, not the user whose ODIS setting must change.
     $ODISPath = 'HKCU:\SOFTWARE\Autodesk\ODIS'
+    try {
+        $sid = Get-UserSID -DomainUser
+        if (-not [string]::IsNullOrWhiteSpace($sid)) {
+            $ODISPath = "Registry::HKEY_USERS\$sid\SOFTWARE\Autodesk\ODIS"
+        }
+    }
+    catch {
+        Write-InstallLog -text "Could not resolve real user SID for ODIS setting, falling back to HKCU: $($_.Exception.Message)" -Info
+    }
 
     if ($PSCmdlet.ShouldProcess("$ODISPath", "Set DisableManualUpdateInstall to $Value")) {
         # Check if ODIS Key exists
@@ -2308,11 +2381,13 @@ function Get-AppLogError {
     )
 
     begin {
-
-        # Check Windows Application logs for errors
-        $logErrors = Get-WinEvent -LogName Application -ErrorAction SilentlyContinue | Where-Object { $_.LevelDisplayName -eq 'Error' -and $_.TimeCreated -gt $Start }
-        # filter for MsiInstaller errors
-        $logErrors = $logErrors | Where-Object { $_.ProviderName -like 'MsiInstaller' }
+        # Check Windows Application logs for MsiInstaller errors using server-side filtering
+        $logErrors = @(Get-WinEvent -FilterHashtable @{
+                LogName = 'Application'
+                Level   = 2
+                ProviderName = 'MsiInstaller'
+                StartTime = $Start
+            } -ErrorAction SilentlyContinue)
     }
 
     process {

@@ -4,6 +4,24 @@ BeforeAll {
     $sutPath = Join-Path -Path $PSScriptRoot -ChildPath 'Install-ADSK.ps1'
     $global:InstallAdskTrustedThumbprint = '53D03841EC43C1C545F56919F9A6AEF0C7D2E783'
 
+    # Non-Windows platforms: ProgramData is empty and Windows-only cmdlets are
+    # missing. Stub both so the loader can be exercised fully mocked everywhere.
+    if ([string]::IsNullOrEmpty($env:ProgramData)) {
+        $env:ProgramData = [System.IO.Path]::GetTempPath()
+    }
+
+    if (-not (Get-Command -Name Get-AuthenticodeSignature -ErrorAction SilentlyContinue)) {
+        Set-Item -Path 'function:global:Get-AuthenticodeSignature' -Value {
+            param([string]$FilePath)
+        }
+    }
+
+    if (-not (Get-Command -Name Import-Certificate -ErrorAction SilentlyContinue)) {
+        Set-Item -Path 'function:global:Import-Certificate' -Value {
+            param([string]$FilePath, [string]$CertStoreLocation)
+        }
+    }
+
     if (-not (Get-Command -Name Set-InstallContext -ErrorAction SilentlyContinue)) {
         Set-Item -Path 'function:global:Set-InstallContext' -Value {
             param(
@@ -74,17 +92,6 @@ BeforeAll {
         Set-Item -Path 'function:global:Test-AutodeskProcessesRunning' -Value { $false }
     }
 
-    if (-not (Get-Command -Name Invoke-Certutil -ErrorAction SilentlyContinue)) {
-        Set-Item -Path 'function:global:Invoke-Certutil' -Value {
-            param([string]$AddStore, [string]$FilePath)
-        }
-    }
-
-    if (-not (Get-Command -Name Invoke-CertutilDelete -ErrorAction SilentlyContinue)) {
-        Set-Item -Path 'function:global:Invoke-CertutilDelete' -Value {
-            param([string]$StoreName, [string]$Thumbprint)
-        }
-    }
 
     @(
         'Copy-WIM',
@@ -174,8 +181,6 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
         }
 
         Mock -CommandName Test-IsElevated -MockWith { $true }
-        Mock -CommandName Invoke-Certutil -MockWith {}
-        Mock -CommandName Invoke-CertutilDelete -MockWith {}
     }
 
     Context 'Administrator check' {
@@ -309,8 +314,8 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
             Mock -CommandName Get-AuthenticodeSignature -MockWith {
                 [PSCustomObject]@{
-                    Status            = [System.Management.Automation.SignatureStatus]::NotTrusted
-                    StatusMessage     = 'A certificate chain could not be built to a trusted root authority.'
+                    Status            = [System.Management.Automation.SignatureStatus]::HashMismatch
+                    StatusMessage     = 'The contents of the file may have been tampered with.'
                     SignerCertificate = [pscustomobject]@{
                         Thumbprint = $global:InstallAdskTrustedThumbprint
                     }
@@ -323,7 +328,61 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
             {
                 Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
-            } | Should -Throw '*Module signature is invalid. Status: NotTrusted*'
+            } | Should -Throw '*Module signature is invalid. Status: HashMismatch*'
+        }
+
+        It 'accepts an untrusted-chain signature when the signer thumbprint is pinned' {
+            Mock -CommandName Invoke-RestMethod -MockWith {
+                [pscustomobject]@{
+                    assets = @(
+                        [pscustomobject]@{
+                            name                 = 'CIDEON.AutodeskDeployment.psm1'
+                            browser_download_url = 'https://example.invalid/CIDEON.AutodeskDeployment.psm1'
+                        },
+                        [pscustomobject]@{
+                            name                 = 'CIDEON-CodeSigning.cer'
+                            browser_download_url = 'https://example.invalid/CIDEON-CodeSigning.cer'
+                        }
+                    )
+                }
+            }
+
+            Mock -CommandName Invoke-WebRequest -MockWith {}
+
+            Mock -CommandName New-Object -MockWith {
+                [pscustomobject]@{
+                    Thumbprint = $global:InstallAdskTrustedThumbprint
+                    Subject    = 'CN=CIDEON-EC Code Signing'
+                }
+            } -ParameterFilter {
+                $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
+            }
+
+            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
+                $Path -like 'Cert:\*'
+            }
+
+            Mock -CommandName Import-Certificate -MockWith {} -ParameterFilter {
+                $CertStoreLocation -like 'Cert:\*'
+            }
+
+            # Self-signed cert without chain trust: status is NotTrusted, but the
+            # pinned thumbprint matches - the module must import.
+            Mock -CommandName Get-AuthenticodeSignature -MockWith {
+                [PSCustomObject]@{
+                    Status            = [System.Management.Automation.SignatureStatus]::NotTrusted
+                    StatusMessage     = 'A certificate chain could not be built to a trusted root authority.'
+                    SignerCertificate = [pscustomobject]@{
+                        Thumbprint = $global:InstallAdskTrustedThumbprint
+                    }
+                }
+            }
+
+            Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
+
+            Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter {
+                $Name -match 'CIDEON[\\/]+Autodesk-Deployments[\\/]+CIDEON\.AutodeskDeployment\.psm1$' -and $Force -eq $true
+            }
         }
 
         It 'throws when remote loading fails and no local fallback module exists' {
@@ -382,7 +441,6 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
             } | Should -Throw '*thumbprint*is not trusted*'
 
             Should -Invoke Import-Certificate -Times 0 -Exactly
-            Should -Invoke Invoke-Certutil -Times 0 -Exactly
         }
 
         It 'rejects a module whose signer thumbprint does not match the pinned release certificate' {
@@ -487,25 +545,8 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
             }
         }
 
-        It 'removes stale Root certificate with same subject when a newer certificate is installed' {
-            $staleCert = [pscustomobject]@{
-                Thumbprint = 'OLD-THUMBPRINT'
-                Subject    = 'CN=CIDEON-EC Code Signing'
-            }
-            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
-                $Path -eq 'Cert:\LocalMachine\TrustedPublisher'
-            }
-            Mock -CommandName Get-ChildItem -MockWith { @($staleCert) } -ParameterFilter {
-                $Path -eq 'Cert:\LocalMachine\Root'
-            }
-
-            Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
-
-            Should -Invoke Invoke-CertutilDelete -Times 1 -Exactly -ParameterFilter {
-                $StoreName -eq 'Root' -and $Thumbprint -eq 'OLD-THUMBPRINT'
-            }
-        }
     }
+
 
     Context 'Workflow mode: Install' {
         It 'runs installation steps including tools, update and local copy' {
