@@ -273,8 +273,13 @@ function Assert-TrustedModuleSignature {
         Verifies a module Authenticode signature against the pinned signer allowlist.
 
     .DESCRIPTION
-        Ensures the signature is valid and that the signer certificate thumbprint
+        Ensures the signature hash is intact and that the signer certificate thumbprint
         matches the installer allowlist.
+
+        Accepts signatures whose file hash is intact even when the signer chain is not
+        trusted by the machine (NotTrusted / UnknownError), because the pinned signer
+        thumbprint check below is the actual trust decision. Rejects NotSigned,
+        HashMismatch and all other statuses.
 
     .PARAMETER Signature
         Result object from Get-AuthenticodeSignature.
@@ -294,7 +299,12 @@ function Assert-TrustedModuleSignature {
         [string[]]$TrustedThumbprint
     )
 
-    if ($Signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+    $acceptableStatus = @(
+        [System.Management.Automation.SignatureStatus]::Valid
+        [System.Management.Automation.SignatureStatus]::NotTrusted
+        [System.Management.Automation.SignatureStatus]::UnknownError
+    )
+    if ($Signature.Status -notin $acceptableStatus) {
         throw "Module signature is invalid. Status: $($Signature.Status) - $($Signature.StatusMessage)"
     }
 
@@ -388,31 +398,79 @@ function Save-RemoteFile {
         [string]$DestinationPath
     )
 
-    if (-not (Test-Path -Path (Split-Path -Path $DestinationPath -Parent))) {
-        New-Item -Path (Split-Path -Path $DestinationPath -Parent) -ItemType Directory -Force -WhatIf:$false | Out-Null
+    $parentPath = Split-Path -Path $DestinationPath -Parent
+    if (-not (Test-Path -Path $parentPath)) {
+        New-Item -Path $parentPath -ItemType Directory -Force -WhatIf:$false | Out-Null
+        Protect-ModuleCacheFolder -FolderPath $parentPath
     }
 
     Invoke-WebRequest -Uri $Uri -OutFile $DestinationPath -UseBasicParsing -ErrorAction Stop
 }
 
+function Protect-ModuleCacheFolder {
+    <#
+    .SYNOPSIS
+        Restricts the module cache folder ACL to SYSTEM and Administrators.
+
+    .DESCRIPTION
+        Disables ACL inheritance and grants full control only to SYSTEM and
+        BUILTIN\Administrators so that non-admin users cannot swap the cached
+        module between signature validation and import (TOCTOU mitigation).
+
+    .PARAMETER FolderPath
+        The folder whose ACL should be hardened.
+
+    .NOTES
+        Autor: Timon Först
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$FolderPath
+    )
+
+    try {
+        $acl = Get-Acl -Path $FolderPath
+        $acl.SetAccessRuleProtection($true, $false)
+
+        $systemSid = [System.Security.Principal.SecurityIdentifier]::new(
+            [System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+        $adminsSid = [System.Security.Principal.SecurityIdentifier]::new(
+            [System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
+
+        foreach ($sid in @($systemSid, $adminsSid)) {
+            $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+                $sid,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
+                [System.Security.AccessControl.PropagationFlags]::None,
+                [System.Security.AccessControl.AccessControlType]::Allow)
+            $acl.AddAccessRule($rule)
+        }
+
+        Set-Acl -Path $FolderPath -AclObject $acl
+    }
+    catch {
+        Write-Warning "Could not harden ACL on '$FolderPath': $($_.Exception.Message)"
+    }
+}
+
 function Add-CertificateToStoreIfMissing {
     <#
     .SYNOPSIS
-        Adds a code-signing certificate to the LocalMachine TrustedPublisher and Root stores if not already present.
+        Adds a code-signing certificate to the LocalMachine TrustedPublisher store if not already present.
 
     .DESCRIPTION
-        Loads an X.509 certificate from the specified file and adds it to both
-        the LocalMachine\TrustedPublisher store (so PowerShell accepts scripts
-        from this publisher) and the LocalMachine\Root store (so Authenticode
-        chain validation succeeds).
+        Loads an X.509 certificate from the specified file and adds it to the
+        LocalMachine\TrustedPublisher store so PowerShell accepts scripts from this publisher.
 
         After installing the new certificate, stale certificates with the same
-        subject but a different thumbprint are removed from both stores, preventing
+        subject but a different thumbprint are removed from the store, preventing
         accumulation of outdated trust anchors.
 
-        TrustedPublisher: uses Import-Certificate (PKI module) and Remove-Item.
-        Root: uses certutil.exe -addstore/-delstore, which are the only methods
-        that add/remove root CA certificates silently without an interactive dialog.
+        Note: The certificate is NOT added to LocalMachine\Root. Thumbprint pinning
+        in the loader provides authenticity verification without fleet-wide root
+        trust installation.
 
         Requires the script to run as administrator.
 
@@ -440,55 +498,6 @@ function Add-CertificateToStoreIfMissing {
     Get-ChildItem -Path $tpPath |
     Where-Object { $_.Subject -eq $certificate.Subject -and $_.Thumbprint -ne $certificate.Thumbprint } |
     ForEach-Object { Remove-Item -Path "$tpPath\$($_.Thumbprint)" -Force }
-
-    # Root: certutil.exe -addstore/-delstore is the only silent option when elevated
-    $rootPath = 'Cert:\LocalMachine\Root'
-    $alreadyInRoot = Get-ChildItem -Path $rootPath | Where-Object { $_.Thumbprint -eq $certificate.Thumbprint }
-    if (-not $alreadyInRoot) {
-        Invoke-Certutil -AddStore 'Root' -FilePath $CertificatePath
-    }
-    # Remove stale Root certificates with the same subject
-    Get-ChildItem -Path $rootPath |
-    Where-Object { $_.Subject -eq $certificate.Subject -and $_.Thumbprint -ne $certificate.Thumbprint } |
-    ForEach-Object { Invoke-CertutilDelete -StoreName 'Root' -Thumbprint $_.Thumbprint }
-}
-
-function Invoke-Certutil {
-    <#
-    .SYNOPSIS
-        Thin wrapper around certutil.exe -addstore for testability.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$AddStore,
-        [Parameter(Mandatory)]
-        [string]$FilePath
-    )
-
-    $result = & certutil.exe -addstore -f $AddStore $FilePath 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "certutil failed to add certificate to '$AddStore' store (exit $LASTEXITCODE): $result"
-    }
-}
-
-function Invoke-CertutilDelete {
-    <#
-    .SYNOPSIS
-        Thin wrapper around certutil.exe -delstore for testability.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$StoreName,
-        [Parameter(Mandatory)]
-        [string]$Thumbprint
-    )
-
-    $result = & certutil.exe -delstore $StoreName $Thumbprint 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "certutil failed to remove certificate '$Thumbprint' from '$StoreName' store (exit $LASTEXITCODE): $result"
-    }
 }
 
 function Import-RemoteSignedDeploymentModule {
@@ -501,6 +510,10 @@ function Import-RemoteSignedDeploymentModule {
         module from the configured GitHub raw URL, adds the certificate to the
         TrustedPublisher store, verifies the module's Authenticode signature and
         imports the module into the current session.
+
+        The module cache folder ACL is restricted to SYSTEM and Administrators when
+        created (see Protect-ModuleCacheFolder) so that non-admin users cannot swap
+        the cached module between signature validation and import.
 
         Throws a terminating error if the signature is invalid.
 
@@ -633,11 +646,19 @@ Invoke-DeploymentWorkflow -ModeHandler {
     ##################################
     switch ($Mode) {
         'Install' {
-            # Copy WIM file to local path
-            Copy-WIM
+            # WIM copy and mount are prerequisites for every following step -
+            # their failure must hard-abort instead of continuing via the trap.
+            try {
+                # Copy WIM file to local path
+                Copy-WIM
 
-            # Mount WIM (in WhatIf mode: read-only inspection mount)
-            Mount-WIM
+                # Mount WIM (in WhatIf mode: read-only inspection mount)
+                Mount-WIM
+            }
+            catch {
+                $_.Exception.Data['HardAbort'] = $true
+                throw $_
+            }
 
             # install autodesk software
             Install-AutodeskDeployment
@@ -665,8 +686,14 @@ Invoke-DeploymentWorkflow -ModeHandler {
             Dismount-WIM
         }
         'Update' {
-            # mount wim from network
-            Mount-WIM
+            # mount wim from network - prerequisite, hard-abort on failure
+            try {
+                Mount-WIM
+            }
+            catch {
+                $_.Exception.Data['HardAbort'] = $true
+                throw $_
+            }
 
             # install updates from wim
             Install-Update

@@ -164,12 +164,17 @@ All helper functions are documented in `CIDEON.AutodeskDeployment.psm1`.
 - Public certificate: `CIDEON-CodeSigning.cer`
 - Certificate guide: `Certificate.md`
 
-The installer loads the module from GitHub Release assets, validates the downloaded certificate against a pinned thumbprint allowlist, validates the module signature against that same signer allowlist, and falls back to the local module in the script directory if remote loading fails.
+The installer loads the module from GitHub Release assets, validates the downloaded certificate against a pinned thumbprint allowlist, validates the module signature against that same signer allowlist, and falls back to the local module in the script directory if remote loading fails. `Copy-Local.ps1` uses the identical loader and validation.
+
+Trust model:
+- The **pinned signer thumbprint** is the trust decision. Signature statuses `NotTrusted`/`UnknownError` (self-signed certificate without machine chain trust) are accepted as long as the file hash is intact and the signer thumbprint is pinned; `NotSigned`, `HashMismatch` and all other statuses are rejected.
+- The certificate is added to `LocalMachine\TrustedPublisher` only. It is **not** installed into `LocalMachine\Root` — the tooling does not create a machine-wide trust anchor.
+- The module cache folder (`%ProgramData%\CIDEON\Autodesk-Deployments`) is created with a restricted ACL (SYSTEM and Administrators only).
 
 Current pinned code-signing thumbprint:
 - `53D03841EC43C1C545F56919F9A6AEF0C7D2E783`
 
-If the code-signing certificate is rotated, update the pinned thumbprint allowlist in `Install-ADSK.ps1` before trusting the new release certificate.
+If the code-signing certificate is rotated, update the pinned thumbprint allowlist in `Install-ADSK.ps1` **and** `Copy-Local.ps1` before trusting the new release certificate.
 
 The installer resolves the module and certificate from GitHub Release assets:
 - default: latest release

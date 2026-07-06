@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - **Added version pinning warning** in `Install-ADSK.ps1` and `Copy-Local.ps1`: When `-ModuleVersionPin` is not specified, a `Write-Warning` is emitted to guide users toward deterministic deployments in production
 - **Added optional SHA-256 hash verification** for downloaded module and certificate files: New parameters `-ExpectedModuleHash` and `-ExpectedCertificateHash` in `Install-ADSK.ps1` and `-ExpectedModuleHash` in `Copy-Local.ps1`. When provided, the downloaded file's SHA-256 hash is verified against the expected value before Authenticode signature validation, providing additional MITM protection
+- The module cache folder under `ProgramData` is created with a restricted ACL (SYSTEM and Administrators only, inheritance disabled) to prevent non-admin users from swapping the cached module between signature validation and import
 
 ### Changed
 - `Install-ADSK.ps1`: Added parameters `-ExpectedModuleHash` (optional, 64-char hex) and `-ExpectedCertificateHash` (optional, 64-char hex) to `Import-RemoteSignedDeploymentModule` flow
@@ -16,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Softened config-file checks in `Mount-WIM`**: Missing deployment config files are now logged and skipped instead of throwing a terminating error. This prevents `Install` and `Update` modes from failing when `image/Collection.xml` is absent. The default `-Files @("Collection")` behavior is unchanged — missing files are simply skipped.
 - **Softened config-file checks in `Mount-WIM`**: After the config loop, a summary warning is logged if all provided configs were skipped, with the message: "No deployment config found — continuing without Autodesk Deployment"
 - **`Update` mode no longer requires any deployment XML** — it completes successfully even when no config files exist (previously blocked by `Mount-WIM`)
+- **BREAKING**: The code-signing certificate is no longer installed into `LocalMachine\Root`. Module authenticity is verified via the pinned signer thumbprint allowlist instead of Authenticode chain trust; signature statuses `NotTrusted` and `UnknownError` are accepted when the file hash is intact and the signer thumbprint is pinned (`NotSigned`, `HashMismatch` and all other statuses are still rejected). Existing machines keep any previously installed Root certificate; new installs no longer add one.
+- `Uninstall-Program` rewrites MSI uninstall strings to `msiexec /x {ProductCode}` (previously the registry `UninstallString` with `/I` was executed, which performs a silent repair instead of an uninstall); executable paths containing hyphens and bare uninstaller executables without arguments are now handled correctly
+- `Set-AutodeskUpdate` writes the ODIS policy to the interactively logged-on user's registry hive (`HKEY_USERS\<SID>`) instead of the elevated account's `HKCU`, falling back to `HKCU` when the user SID cannot be resolved
+- `Copy-WIM` re-copies the WIM when the existing local file differs from the source in size or modification time (previously any existing local file was reused without validation)
+- `Get-AppLogError` uses server-side event log filtering (`-FilterHashtable`) instead of loading the entire Application log
+- CI: the release job now requires the new `test` job (Pester + PSScriptAnalyzer on windows-latest) to pass; PRs and pushes to `main` are gated as well
 
 ### Fixed
 - Fixed typo `Deplyoment` → `Deployment` in log-file naming and internal references (affects `Install-AutodeskDeployment` log file names)
@@ -23,11 +30,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Write-InstallLog`: added a `-Warn` switch that logs the `WARN` category. `-Info` and `-Fail` behaviour is unchanged; `-Fail` still takes precedence over `-Warn`
 - **Certificate hash is now verified before the certificate is imported** in `Install-ADSK.ps1`: `-ExpectedCertificateHash` was previously checked after `Add-CertificateToStoreIfMissing`, so a tampered certificate would already have been added to the machine store before the mismatch was detected
 - Corrected four unit tests that did not match the module API: a mock writing to an uninitialised `$script:LogFailMessages`, an array literal missing parentheses around `Join-Path` calls, a summary-warning assertion pointed at `Install-AutodeskDeployment` instead of `Mount-WIM`, and a call passing a non-existent `-Mode` parameter to `Install-Update`
+- `Copy-Local.ps1` re-encoded as UTF-8 with BOM (was UTF-16, which git treated as binary; the BOM keeps non-ASCII characters readable under Windows PowerShell 5.1) and its module loader now enforces the same pinned certificate-thumbprint and signer validation as `Install-ADSK.ps1`; the `-Logging` parameter creates `Path\_LOG\Copy-Local-<COMPUTERNAME>.log` again
+- `Install-ADSK.ps1`: failures in `Copy-WIM`/`Mount-WIM` now hard-abort the workflow instead of being swallowed by the mode handler trap and continuing installation against an unmounted directory
+- `Set-AutodeskUpdate` throws a terminating error when none of `-Enable`/`-ShowOnly`/`-Disable` is specified (previously crashed under strict mode with an undefined value)
+- `Set-AutodeskDeployment` honors `-WhatIf`/`ShouldProcess` for `-Remove` package deletion and no longer saves the XML when the operation was declined
+- `Get-RealUserName` returns a single string (previously could emit two objects when user detection failed)
+- `Install-AutodeskDeployment` quotes the deployment config path and waits on the started installer process instead of any process named `Installer`; fixed "Deplyoment" typo in the installer log file name
+- CI: version stamping used `[regex]::Replace(..., 1)` whose fourth argument is `RegexOptions.IgnoreCase`, not a replacement count — now uses an instance `Regex` with an explicit count of 1
 
 ### Documentation
 - Updated `readme.md`: `image/` folder now marked as optional in the folder table; added note that missing deployment configs are skipped with a warning
 - Updated `readme.md`: `-Files` parameter description now documents the soft-check behavior (missing files are skipped)
 - Updated `TEST-MATRIX.md`: Marked `Mount-WIM` as fully implemented for both happy and error paths
+
 
 ## [2.0.0] - 2026-06-08
 ### Added
