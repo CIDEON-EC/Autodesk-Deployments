@@ -14,8 +14,38 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run PSScriptAnalyzer
+      run: |
+        if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+        }
+
+        $results = @(Get-ChildItem -Recurse -Filter *.ps1 |
+          ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName -Settings .\.scripts\PSScriptAnalyzerSettings.psd1 })
+
+        if ($results.Count -gt 0) {
+          $results | Format-Table -AutoSize | Out-String | Write-Host
+          throw "PSScriptAnalyzer found $($results.Count) issue(s)."
+        }
+
+        Write-Host 'PSScriptAnalyzer: no issues found.'
+
+    - name: Run Pester tests
+      run: .\.scripts\Invoke-PesterTests.ps1
+
   create-release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: test
     runs-on: windows-latest
     permissions:
       contents: write
@@ -54,9 +84,11 @@ jobs:
 
         $installScriptPath = 'Install-ADSK.ps1'
         $installScriptContent = Get-Content -Path $installScriptPath -Raw
-        $updatedInstallScript = [regex]::Replace(
+        # Instance Replace supports a replacement count; the static overload's
+        # 4th argument is RegexOptions, not a count.
+        $versionRegex = [regex]::new('(?m)^\s*Version:\s*[0-9A-Za-z\.-]+\s*$')
+        $updatedInstallScript = $versionRegex.Replace(
           $installScriptContent,
-          '(?m)^\s*Version:\s*[0-9A-Za-z\.-]+\s*$',
           "    Version: $version",
           1
         )
@@ -69,9 +101,9 @@ jobs:
 
         $modulePath = 'CIDEON.AutodeskDeployment.psm1'
         $moduleContent = Get-Content -Path $modulePath -Raw
-        $updatedModule = [regex]::Replace(
+        $moduleVersionRegex = [regex]::new('(?m)^\s*ModuleVersion:\s*[0-9A-Za-z\.-]+\s*$')
+        $updatedModule = $moduleVersionRegex.Replace(
           $moduleContent,
-          '(?m)^\s*ModuleVersion:\s*[0-9A-Za-z\.-]+\s*$',
           "    ModuleVersion: $version",
           1
         )
