@@ -29,9 +29,12 @@ Create these **hardcoded folder names** for additional content:
 
 | Folder | Purpose | Content Example |
 |--------|---------|----------------|
+| 📁 **image/** *(Optional)* | Custom deployment layouts | `AMECH_PP_20XX_de-DE/`, `INVPROSA_20XX_de-DE/` |
 | 📁 **Updates/** | Product updates | `Update_Inventor_20XX.X.exe` |
 | 📁 **Cideon/** | Cideon tools | `CIDEON.Inventor.Toolbox_x64.msi` |
 | 📁 **Local/** | Config files | `ProgramData/`, `Users/` folders |
+
+> ⚠️ **Note:** The `image/` folder (default Autodesk deployment) is now **optional**. If it is absent, the installer logs a warning and proceeds without Autodesk Deployment products.
 
 #### **📦 Step 3: Create WIM File**
 - 🗜️ **Use 7-Zip** to create a WIM file from your deployment folder
@@ -216,7 +219,7 @@ You can find this in the file itself, but here is an overview.
 | **Mode** | String | ✅ | - | Mode to execute: `Install`, `Uninstall`, `Update` |
 | **Path** | String | ❌ | Script location | Path to the WIM file. Not needed if WIM is in same folder as script |
 | **LocalFolder** | String | ❌ | `C:\Temp` | Local folder where WIM file should be downloaded and mapped |
-| **Files** | String Array | ❌ | `@("Collection")` | XML filenames WITHOUT extension for installation. Before each install, `LoggingSettings` in the selected XML is enforced to `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deployment-<WIM>.log` |
+| **Files** | String Array | ❌ | `@("Collection")` | XML filenames WITHOUT extension for installation. **Missing config files are skipped** (logged but do not stop the install). If no config files exist, the installation proceeds without Autodesk Deployment. |
 | **Version** | String | ❌ | Auto-extracted | Software version for Cideon tools and logging |
 | **ModuleVersionPin** | String | ❌ | Latest Release | Pins online module/certificate download to a specific release version (e.g. `1.2.0`) |
 | **Logging** | Switch | ❌ | `$false` | Enable log file creation in local folder |

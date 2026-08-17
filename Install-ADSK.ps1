@@ -59,8 +59,10 @@
     Available: Install, Uninstall, Update
 	Mode that you want to execute. Start the batchfile  inside the wim file.
 .PARAMETER Files
-    Array of XML filenames WIHOUT extension, default "Collection"
-    Files that should be used for the installation.
+    Array of XML filenames WITHOUT extension, default "Collection"
+    Files that should be used for the installation. Missing config files are skipped
+    (logged but do not stop the install). If no config files exist, the installation
+    proceeds without Autodesk Deployment.
 .PARAMETER Version
     Optional. The Software Version for installing cideon tools and logging.
     It will be extracted from the WIM name, if a 4 digit number is found.
@@ -153,7 +155,15 @@ param (
     [switch]$ForceQuit,
 
     [Parameter(Mandatory = $false, HelpMessage = 'Skips Authenticode signature validation for the local fallback module. For development use only.')]
-    [switch]$SkipSignatureCheck
+    [switch]$SkipSignatureCheck,
+
+    [Parameter(Mandatory = $false, HelpMessage = 'Expected SHA-256 hash for the deployment module. When provided, the downloaded module will be verified against this hash.')]
+    [ValidatePattern('^[0-9a-fA-F]{64}$')]
+    [string]$ExpectedModuleHash,
+
+    [Parameter(Mandatory = $false, HelpMessage = 'Expected SHA-256 hash for the code-signing certificate. When provided, the downloaded certificate will be verified against this hash.')]
+    [ValidatePattern('^[0-9a-fA-F]{64}$')]
+    [string]$ExpectedCertificateHash
 )
 
 
@@ -170,6 +180,11 @@ if (-not (Test-IsElevated)) {
 
 if ($WIM.EndsWith('.wim', [System.StringComparison]::OrdinalIgnoreCase)) {
     $WIM = $WIM.Substring(0, $WIM.Length - 4)
+}
+
+# LOW Issue #1: Warn when module download is not pinned to a specific version
+if (-not $ModuleVersionPin) {
+    Write-Warning 'ModuleVersionPin is not specified. The module and certificate will be downloaded from the latest GitHub Release. For production deployments, pin to a specific version: -ModuleVersionPin "x.y.z"'
 }
 
 
@@ -503,6 +518,21 @@ function Import-RemoteSignedDeploymentModule {
     Add-CertificateToStoreIfMissing -CertificatePath $CertificateLocalPath
 
     Save-RemoteFile -Uri $moduleRemoteUri -DestinationPath $ModuleLocalPath
+
+    # LOW Issue #2: SHA-256 hash verification for downloaded assets (MITM protection)
+    if ($ExpectedCertificateHash) {
+        $actualCertHash = (Get-FileHash -Path $CertificateLocalPath -Algorithm SHA256).Hash
+        if ($actualCertHash -ne $ExpectedCertificateHash) {
+            throw "Certificate hash mismatch. Expected: $ExpectedCertificateHash, Actual: $actualCertHash"
+        }
+    }
+
+    if ($ExpectedModuleHash) {
+        $actualModuleHash = (Get-FileHash -Path $ModuleLocalPath -Algorithm SHA256).Hash
+        if ($actualModuleHash -ne $ExpectedModuleHash) {
+            throw "Module hash mismatch. Expected: $ExpectedModuleHash, Actual: $actualModuleHash"
+        }
+    }
 
     $signature = Get-AuthenticodeSignature -FilePath $ModuleLocalPath
     Assert-TrustedModuleSignature -Signature $signature -TrustedThumbprint $TrustedCertificateThumbprints

@@ -5,46 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2026-06-08
-### Added
-- Complete new introduction of using a PowerShell module, instead of one script [#5](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/5)
-- New Pester unit tests covering key functions: `Mount-WIM`, `Dismount-WIM`, `Install-Update`, `Install-AutodeskDeployment`, `Get-CachedFiles` and `Set-AutodeskUpdate` (risk‑based P0/P1 matrix)
-- CI workflow extended to execute PSScriptAnalyzer and the unit‑test suite on pull requests and pushes to `main` in addition to tag‑based releases
-- Added optional `-ModuleVersionPin` parameter to `Install-ADSK.ps1` to pin online module download to a specific release version — now supports pre-release versions (e.g. `2.0.0-beta.1`) in addition to stable semver
-- Added CI code-signing step for `CIDEON.AutodeskDeployment.psm1` in tag-based release workflow
-- Added trap to avoid terminating the script for strange errors [#10](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/10)
-- Added compact console progress output [#11](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/11)
-- Progress output will suppressed when `-Quiet` is used in `Install-ADSK.ps1`.
-- Added Pester regression tests for rejecting unpinned release certificates and modules signed by an unexpected signer certificate in `Install-ADSK.ps1`
-- Unblock file in Install-Updates if necessary #15
-- CIDEON.AutodeskDeployment.psm1: New Functions added Get-AutodeskProcesses, Test-AutodeskProcessesRunning, Stop-AutodeskProcess #18
-- Install-ADSK.ps1: Added pre check for running Autodesk applications (Inventor, AutoCAD, Vault) before start. If application is running, the installation will aborted #18
-- Install-ADSK.ps1: Added new parameter -ForceQuit to force quit running Autodesk applications (Inventor, AutoCAD, Vault) #18
-
+## [2.0.1] - 2026-08-18
+### Security
+- **Added version pinning warning** in `Install-ADSK.ps1` and `Copy-Local.ps1`: When `-ModuleVersionPin` is not specified, a `Write-Warning` is emitted to guide users toward deterministic deployments in production
+- **Added optional SHA-256 hash verification** for downloaded module and certificate files: New parameters `-ExpectedModuleHash` and `-ExpectedCertificateHash` in `Install-ADSK.ps1` and `-ExpectedModuleHash` in `Copy-Local.ps1`. When provided, the downloaded file's SHA-256 hash is verified against the expected value before Authenticode signature validation, providing additional MITM protection
 
 ### Changed
-- Renamed `Get-WIM` to `Copy-WIM` — clearer intent, the function copies the WIM from the network share to the local machine
-- Replaced interactive `Read-Host` version prompt with a terminating `ErrorRecord` (`InvalidVersionFormat`) — scripts are now fully non-interactive per PowerShell best practices
-- Removed `foreach` loop over multiple WIM files; the module now discovers exactly one WIM matching the `-WIM` parameter and throws `WimFileNotFound` if zero or more than one match
-- Install-AutodeskDeployment accepts optional explicit config, log-folder and deployment-name parameters so deployment execution is less dependent on ambient module state.
-- Refactored `Copy-Local.ps1` into a thin wrapper that loads `CIDEON.AutodeskDeployment.psm1` with the same signed module bootstrap and optional `-ModuleVersionPin` behavior as `Install-ADSK.ps1`.
+- `Install-ADSK.ps1`: Added parameters `-ExpectedModuleHash` (optional, 64-char hex) and `-ExpectedCertificateHash` (optional, 64-char hex) to `Import-RemoteSignedDeploymentModule` flow
+- `Copy-Local.ps1`: Added parameter `-ExpectedModuleHash` (optional, 64-char hex) with SHA-256 verification after download
+
+## [2.0.0] - 2026-08-17
+### Changed
+- **Softened config-file checks in `Mount-WIM`**: Missing deployment config files are now logged and skipped instead of throwing a terminating error. This prevents `Install` and `Update` modes from failing when `image/Collection.xml` is absent. The default `-Files @("Collection")` behavior is unchanged — missing files are simply skipped.
+- **Softened config-file checks in `Install-AutodeskDeployment`**: After the config loop, a summary warning is logged if all provided configs were skipped, with the message: "No deployment config found — continuing without Autodesk Deployment"
+- **`Update` mode no longer requires any deployment XML** — it completes successfully even when no config files exist (previously blocked by `Mount-WIM`)
 
 ### Fixed
-- Fixed `-WIM` parameter to accept value with an `.wim` suffix [#8](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/8)
-- `Install-Update` now guards against `$null` file lists by coercing results to an array; prevents runtime errors during WhatIf/empty-cache scenarios (covered by new unit test)
-- Fixed calling folders as installation [#9](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/9)
-- Install-AutodeskDeployment now creates missing LoggingSettings XML nodes correctly under module strict mode before saving the deployment config, and falls back to Image/Collection.xml if no explicit config list is present.
-- Install-Update: Exclude pattern fixed, always exclude folders. Removed unnecessary VBA folder #16
-- Install-ADSK.ps1: Using Logging only inside of Invoke-DeploymentWorkflow
-- Install-ADSK.ps1: Check of running Autodesk programms hard end inside trap
-- Install-ADSK.ps1: Throw inside Invoke-DeploymentWorkflow not hanging anymore
+- Fixed typo `Deplyoment` → `Deployment` in log-file naming and internal references (affects `Install-AutodeskDeployment` log file names)
 
 ### Documentation
-- Added or completed comment-based help (`.SYNOPSIS`, `.DESCRIPTION`, `.PARAMETER`, `.EXAMPLE`, `.NOTES`) for all module functions: `Set-InstallContext`, `Get-RealUserName`, `Get-UserSID`, `Set-InventorProjectFile`
+- Updated `readme.md`: `image/` folder now marked as optional in the folder table; added note that missing deployment configs are skipped with a warning
+- Updated `readme.md`: `-Files` parameter description now documents the soft-check behavior (missing files are skipped)
+- Updated `TEST-MATRIX.md`: Marked `Mount-WIM` as fully implemented for both happy and error paths
 
 ### Security
-- `Add-CertificateToStoreIfMissing` now removes stale certificates with the same subject from `LocalMachine\TrustedPublisher` and `LocalMachine\Root` after installing a new certificate, preventing accumulation of outdated trust anchors
-- `Install-ADSK.ps1` now validates the downloaded release certificate against a pinned thumbprint allowlist before importing it into the machine certificate stores and also pins the module signer thumbprint during remote and local fallback module validation
+- No change to the module loader or signature validation — the module is still loaded from GitHub Releases with Authenticode signature validation against a pinned thumbprint allowlist
 
 
 ## [1.1.2] - 2026-03-04

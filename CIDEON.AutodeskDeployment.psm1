@@ -710,7 +710,7 @@ function Install-AutodeskDeployment {
     foreach ($ConfigFullFilename in $configFiles) {
         Write-InstallLog -text "Started Installation of ConfigFile: $ConfigFullFilename" -Info
         $configName = Split-Path $ConfigFullFilename -Leaf
-        $deploymentLogPath = [System.IO.Path]::Combine($LogFolder, "Install-ADSK-Deplyoment-$DeploymentName.log")
+        $deploymentLogPath = [System.IO.Path]::Combine($LogFolder, "Install-ADSK-Deployment-$DeploymentName.log")
 
         if (-not (Test-Path -Path $ConfigFullFilename -PathType Leaf)) {
             Write-InstallLog -text "Config file not found: $ConfigFullFilename" -Fail
@@ -2025,12 +2025,18 @@ function Mount-WIM {
             Write-InstallLog -text "WIM $File.FullName mounted to $Path" -Info
         }
 
-        # check if configfile exists
+        # Skip missing config files (soft check: log + continue, never throw)
+        $skippedCount = 0
         foreach ($ConfigFullFilename in $ConfigFullFilenames) {
             if (-not [System.IO.File]::Exists($ConfigFullFilename)) {
-                Write-InstallLog -text "ConfigFile $ConfigFullFilename does not exist" -Fail
-                throw "ConfigFile $ConfigFullFilename does not exist"
+                Write-InstallLog -text "ConfigFile $ConfigFullFilename does not exist — skipping" -Fail
+                $skippedCount++
             }
+        }
+
+        # Summary: if all configs were skipped, log a friendly message
+        if ($skippedCount -eq $ConfigFullFilenames.Count -and $ConfigFullFilenames.Count -gt 0) {
+            Write-InstallLog -text "No deployment config found — continuing without Autodesk Deployment" -Warn
         }
     }
 

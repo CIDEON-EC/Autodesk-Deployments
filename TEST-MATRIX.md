@@ -38,7 +38,7 @@ Legend:
 | Update-WIMInspectionCache | [x] | [x] | n/a | [x] |
 | Get-CachedFiles | [x] | [x] | n/a | [x] |
 | Install-Update | [~] | [ ] | [~] | [~] |
-| Install-AutodeskDeployment | [~] | [x] | [ ] | [~] |
+| Install-AutodeskDeployment | [x] | [x] | [ ] | [x] |
 | Uninstall-AutodeskDeployment | [x] | [x] | [ ] | [~] |
 | Set-AutodeskDeployment | [ ] | [ ] | [ ] | [ ] |
 | Install-CideonTool | [x] | [~] | [x] | [~] |

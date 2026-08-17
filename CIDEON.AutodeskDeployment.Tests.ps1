@@ -258,7 +258,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
-        It 'throws when a required config file is missing after mount' {
+        It 'does not throw when a config file is missing after mount' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $missingConfigPath = Join-Path -Path $TestDrive -ChildPath 'MissingCollection.xml'
                 $Global:ConfigFullFilenames = @($missingConfigPath)
@@ -267,7 +267,27 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Mount-WIM -File $fileObj -Path 'C:\fakeMount' } | Should -Throw '*ConfigFile*does not exist*'
+                { Mount-WIM -File $fileObj -Path 'C:\fakeMount' } | Should -Not -Throw
+            }
+        }
+
+        It 'logs a failure when a config file is missing after mount' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $missingConfigPath = Join-Path -Path $TestDrive -ChildPath 'MissingCollection.xml'
+                $Global:ConfigFullFilenames = @($missingConfigPath)
+                $fileObj = [pscustomobject]@{ FullName = 'C:\fake.wim' }
+
+                Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallLog -MockWith {
+                    param($text, $Fail = $false)
+                    if ($Fail) {
+                        $script:LogFailMessages += $text
+                    }
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Mount-WIM -File $fileObj -Path 'C:\fakeMount' } | Should -Not -Throw
+
+                Should -Invoke Write-InstallLog -ParameterFilter { $Fail -eq $true } -Times 1 -Exactly
             }
         }
 
@@ -446,6 +466,44 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 {
                     Install-AutodeskDeployment -ConfigFile @($configPath) -LogFolder $TestDrive -DeploymentName 'PDC_2026'
                 } | Should -Throw '*requires -Path or an initialized script mountPath context*'
+            }
+        }
+
+        It 'skips all missing configs and logs a summary warning' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $script:ConfigFullFilenames = @(
+                    Join-Path -Path $TestDrive -ChildPath 'Missing1.xml',
+                    Join-Path -Path $TestDrive -ChildPath 'Missing2.xml'
+                )
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Install-AutodeskDeployment -Path 'C:\\noimage' -WhatIf:$false } | Should -Not -Throw
+
+                Should -Invoke Write-InstallLog -ParameterFilter { $text -eq 'No deployment config found — continuing without Autodesk Deployment' } -Times 1 -Exactly
+            }
+        }
+
+        It 'completes Update mode without any deployment xml' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $script:ConfigFullFilenames = @()
+                $script:LogFile = Join-Path -Path $TestDrive -ChildPath 'update.log'
+                $script:LocalFolder = $TestDrive
+                $script:Version = '2026'
+                $script:startProcessCall = $null
+
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallProgress -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-ChildItem -MockWith { @() } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Start-Process -MockWith {
+                    param($FilePath, $ArgumentList)
+                    $script:startProcessCall = @{ FilePath = $FilePath; ArgumentList = $ArgumentList }
+                    [pscustomobject]@{ Id = 1234 }
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Wait-Process -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Install-Update -Path $TestDrive -Mode 'Update' -WhatIf:$false } | Should -Not -Throw
+
+                $script:startProcessCall.FilePath | Should -Be 'msiexec.exe'
             }
         }
     }
