@@ -16,6 +16,18 @@ BeforeAll {
         }
     }
 
+    if (-not (Get-Command -Name Get-Acl -ErrorAction SilentlyContinue)) {
+        Set-Item -Path 'function:global:Get-Acl' -Value {
+            param([string]$Path)
+        }
+    }
+
+    if (-not (Get-Command -Name Set-Acl -ErrorAction SilentlyContinue)) {
+        Set-Item -Path 'function:global:Set-Acl' -Value {
+            param([string]$Path, $AclObject)
+        }
+    }
+
     if (-not (Get-Command -Name Import-Certificate -ErrorAction SilentlyContinue)) {
         Set-Item -Path 'function:global:Import-Certificate' -Value {
             param([string]$FilePath, [string]$CertStoreLocation)
@@ -181,6 +193,11 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
         }
 
         Mock -CommandName Test-IsElevated -MockWith { $true }
+
+        # keep the suite hermetic: never touch real ACLs on the ProgramData cache
+        # folder (the CI runner is elevated, so Set-Acl would actually apply there)
+        Mock -CommandName Get-Acl -MockWith { [System.Security.AccessControl.DirectorySecurity]::new() }
+        Mock -CommandName Set-Acl -MockWith {}
     }
 
     Context 'Administrator check' {
@@ -256,6 +273,57 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
             }
         }
 
+        It 'hardens the module cache folder ACL even when the folder already exists' {
+            Mock -CommandName Invoke-RestMethod -MockWith {
+                [pscustomobject]@{
+                    assets = @(
+                        [pscustomobject]@{
+                            name                 = 'CIDEON.AutodeskDeployment.psm1'
+                            browser_download_url = 'https://example.invalid/CIDEON.AutodeskDeployment.psm1'
+                        },
+                        [pscustomobject]@{
+                            name                 = 'CIDEON-CodeSigning.cer'
+                            browser_download_url = 'https://example.invalid/CIDEON-CodeSigning.cer'
+                        }
+                    )
+                }
+            }
+
+            Mock -CommandName Invoke-WebRequest -MockWith {}
+
+            Mock -CommandName New-Object -MockWith {
+                [pscustomobject]@{
+                    Thumbprint = $global:InstallAdskTrustedThumbprint
+                    Subject    = 'CN=CIDEON-EC Code Signing'
+                }
+            } -ParameterFilter {
+                $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
+            }
+
+            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
+                $Path -like 'Cert:\*'
+            }
+
+            Mock -CommandName Import-Certificate -MockWith {} -ParameterFilter {
+                $CertStoreLocation -like 'Cert:\*'
+            }
+
+            # cache folder already present: New-Item is skipped, but the ACL must still
+            # be hardened - otherwise a pre-created folder keeps its inherited ACL
+            Mock -CommandName Test-Path -MockWith { $true } -ParameterFilter {
+                $Path -like '*CIDEON*Autodesk-Deployments'
+            }
+            Mock -CommandName New-Item -MockWith {}
+
+            Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
+
+            Should -Invoke New-Item -Times 0 -Exactly
+            Should -Invoke Set-Acl -ParameterFilter {
+                $Path -like '*CIDEON*Autodesk-Deployments'
+            }
+
+        }
+
         It 'throws when the module release asset is missing and no local fallback exists' {
             Mock -CommandName Invoke-RestMethod -MockWith {
                 [pscustomobject]@{
@@ -329,6 +397,60 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
             {
                 Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
             } | Should -Throw '*Module signature is invalid. Status: HashMismatch*'
+        }
+
+        It 'rejects an UnknownError signature status even when the signer thumbprint is pinned' {
+            Mock -CommandName Invoke-RestMethod -MockWith {
+                [pscustomobject]@{
+                    assets = @(
+                        [pscustomobject]@{
+                            name                 = 'CIDEON.AutodeskDeployment.psm1'
+                            browser_download_url = 'https://example.invalid/CIDEON.AutodeskDeployment.psm1'
+                        },
+                        [pscustomobject]@{
+                            name                 = 'CIDEON-CodeSigning.cer'
+                            browser_download_url = 'https://example.invalid/CIDEON-CodeSigning.cer'
+                        }
+                    )
+                }
+            }
+
+            Mock -CommandName Invoke-WebRequest -MockWith {}
+
+            Mock -CommandName New-Object -MockWith {
+                [pscustomobject]@{
+                    Thumbprint = $global:InstallAdskTrustedThumbprint
+                    Subject    = 'CN=CIDEON-EC Code Signing'
+                }
+            } -ParameterFilter {
+                $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2'
+            }
+
+            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter {
+                $Path -like 'Cert:\*'
+            }
+
+            Mock -CommandName Import-Certificate -MockWith {} -ParameterFilter {
+                $CertStoreLocation -like 'Cert:\*'
+            }
+
+            Mock -CommandName Get-AuthenticodeSignature -MockWith {
+                [PSCustomObject]@{
+                    Status            = [System.Management.Automation.SignatureStatus]::UnknownError
+                    StatusMessage     = 'Unknown error.'
+                    SignerCertificate = [pscustomobject]@{
+                        Thumbprint = $global:InstallAdskTrustedThumbprint
+                    }
+                }
+            }
+
+            Mock -CommandName Test-Path -MockWith { $false } -ParameterFilter {
+                $Path -like '*CIDEON.AutodeskDeployment.psm1'
+            }
+
+            {
+                Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
+            } | Should -Throw '*Module signature is invalid. Status: UnknownError*'
         }
 
         It 'accepts an untrusted-chain signature when the signer thumbprint is pinned' {

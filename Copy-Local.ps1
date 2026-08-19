@@ -134,10 +134,14 @@ function Assert-TrustedModuleSignature {
         Verifies a module Authenticode signature against the pinned signer allowlist.
 
     .DESCRIPTION
-        Accepts signatures whose file hash is intact even when the signer chain is not
-        trusted by the machine (NotTrusted / UnknownError), because the pinned signer
-        thumbprint below is the actual trust decision. Rejects NotSigned, HashMismatch
-        and all other statuses.
+        Accepts NotTrusted in addition to Valid: the certificate is deliberately no
+        longer installed into LocalMachine\Root, so a correctly signed module reports
+        NotTrusted (chain not trusted) while its file hash is still verified. The
+        pinned signer thumbprint below is the actual trust decision.
+
+        UnknownError is NOT accepted. It is a catch-all status that carries no
+        guarantee the file hash was verified, so it cannot stand in for a hash check.
+        NotSigned, HashMismatch and all other statuses are rejected as well.
     #>
     [CmdletBinding()]
     param(
@@ -151,7 +155,6 @@ function Assert-TrustedModuleSignature {
     $acceptableStatus = @(
         [System.Management.Automation.SignatureStatus]::Valid
         [System.Management.Automation.SignatureStatus]::NotTrusted
-        [System.Management.Automation.SignatureStatus]::UnknownError
     )
     if ($Signature.Status -notin $acceptableStatus) {
         throw "Module signature is invalid. Status: $($Signature.Status) - $($Signature.StatusMessage)"
@@ -229,8 +232,12 @@ function Save-RemoteFile {
     $parentPath = Split-Path -Path $DestinationPath -Parent
     if (-not (Test-Path -Path $parentPath)) {
         New-Item -Path $parentPath -ItemType Directory -Force -WhatIf:$false | Out-Null
-        Protect-ModuleCacheFolder -FolderPath $parentPath
     }
+
+    # Harden on every run, not only on creation: a folder left over from an earlier
+    # run - or pre-created by a non-admin - would otherwise keep its inherited ACL
+    # and defeat the TOCTOU protection entirely.
+    Protect-ModuleCacheFolder -FolderPath $parentPath
 
     Invoke-WebRequest -Uri $Uri -OutFile $DestinationPath -UseBasicParsing -ErrorAction Stop
 }
