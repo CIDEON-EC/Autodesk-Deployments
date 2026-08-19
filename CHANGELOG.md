@@ -14,10 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Install-ADSK.ps1`: Added parameters `-ExpectedModuleHash` (optional, 64-char hex) and `-ExpectedCertificateHash` (optional, 64-char hex) to `Import-RemoteSignedDeploymentModule` flow
 - `Copy-Local.ps1`: Added parameter `-ExpectedModuleHash` (optional, 64-char hex) with SHA-256 verification after download
 
+### Fixed
+- **`Mount-WIM` no longer fails when all deployment configs are missing**: the summary log call used a `-Warn` switch that `Write-InstallLog` did not define, so PowerShell rejected it as ambiguous with the common parameters `-WarningAction`/`-WarningVariable` and threw instead of continuing
+- `Write-InstallLog`: added a `-Warn` switch that logs the `WARN` category. `-Info` and `-Fail` behaviour is unchanged; `-Fail` still takes precedence over `-Warn`
+- **Certificate hash is now verified before the certificate is imported** in `Install-ADSK.ps1`: `-ExpectedCertificateHash` was previously checked after `Add-CertificateToStoreIfMissing`, so a tampered certificate would already have been added to the machine store before the mismatch was detected
+- Corrected four unit tests that did not match the module API: a mock writing to an uninitialised `$script:LogFailMessages`, an array literal missing parentheses around `Join-Path` calls, a summary-warning assertion pointed at `Install-AutodeskDeployment` instead of `Mount-WIM`, and a call passing a non-existent `-Mode` parameter to `Install-Update`
+
 ## [2.0.0] - 2026-08-17
 ### Changed
 - **Softened config-file checks in `Mount-WIM`**: Missing deployment config files are now logged and skipped instead of throwing a terminating error. This prevents `Install` and `Update` modes from failing when `image/Collection.xml` is absent. The default `-Files @("Collection")` behavior is unchanged — missing files are simply skipped.
-- **Softened config-file checks in `Install-AutodeskDeployment`**: After the config loop, a summary warning is logged if all provided configs were skipped, with the message: "No deployment config found — continuing without Autodesk Deployment"
+- **Softened config-file checks in `Mount-WIM`**: After the config loop, a summary warning is logged if all provided configs were skipped, with the message: "No deployment config found — continuing without Autodesk Deployment"
 - **`Update` mode no longer requires any deployment XML** — it completes successfully even when no config files exist (previously blocked by `Mount-WIM`)
 
 ### Fixed

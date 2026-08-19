@@ -278,16 +278,30 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 $fileObj = [pscustomobject]@{ FullName = 'C:\fake.wim' }
 
                 Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
-                Mock -CommandName Write-InstallLog -MockWith {
-                    param($text, $Fail = $false)
-                    if ($Fail) {
-                        $script:LogFailMessages += $text
-                    }
-                } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
                 { Mount-WIM -File $fileObj -Path 'C:\fakeMount' } | Should -Not -Throw
 
                 Should -Invoke Write-InstallLog -ParameterFilter { $Fail -eq $true } -Times 1 -Exactly
+            }
+        }
+
+        It 'skips all missing configs and logs a summary warning' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $Global:ConfigFullFilenames = @(
+                    (Join-Path -Path $TestDrive -ChildPath 'Missing1.xml'),
+                    (Join-Path -Path $TestDrive -ChildPath 'Missing2.xml')
+                )
+                $fileObj = [pscustomobject]@{ FullName = 'C:\fake.wim' }
+
+                Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Mount-WIM -File $fileObj -Path 'C:\fakeMount' } | Should -Not -Throw
+
+                Should -Invoke Write-InstallLog -ParameterFilter {
+                    $text -eq 'No deployment config found — continuing without Autodesk Deployment' -and $Warn
+                } -Times 1 -Exactly
             }
         }
 
@@ -469,39 +483,29 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
-        It 'skips all missing configs and logs a summary warning' {
-            InModuleScope CIDEON.AutodeskDeployment {
-                $script:ConfigFullFilenames = @(
-                    Join-Path -Path $TestDrive -ChildPath 'Missing1.xml',
-                    Join-Path -Path $TestDrive -ChildPath 'Missing2.xml'
-                )
-                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
-
-                { Install-AutodeskDeployment -Path 'C:\\noimage' -WhatIf:$false } | Should -Not -Throw
-
-                Should -Invoke Write-InstallLog -ParameterFilter { $text -eq 'No deployment config found — continuing without Autodesk Deployment' } -Times 1 -Exactly
-            }
-        }
-
         It 'completes Update mode without any deployment xml' {
             InModuleScope CIDEON.AutodeskDeployment {
-                $script:ConfigFullFilenames = @()
+                $Global:ConfigFullFilenames = @()
                 $script:LogFile = Join-Path -Path $TestDrive -ChildPath 'update.log'
                 $script:LocalFolder = $TestDrive
                 $script:Version = '2026'
                 $script:startProcessCall = $null
 
+                # one MSI update present: Update mode must run it even though no deployment xml exists
+                $updateFile = [pscustomobject]@{
+                    Name     = 'Patch1.msi'
+                    FullName = Join-Path -Path $TestDrive -ChildPath 'Patch1.msi'
+                }
+
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallProgress -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
-                Mock -CommandName Get-ChildItem -MockWith { @() } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-ChildItem -MockWith { @($updateFile) } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Start-Process -MockWith {
-                    param($FilePath, $ArgumentList)
                     $script:startProcessCall = @{ FilePath = $FilePath; ArgumentList = $ArgumentList }
-                    [pscustomobject]@{ Id = 1234 }
+                    [pscustomobject]@{ Id = 1234; ExitCode = 0 }
                 } -ModuleName 'CIDEON.AutodeskDeployment'
-                Mock -CommandName Wait-Process -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Install-Update -Path $TestDrive -Mode 'Update' -WhatIf:$false } | Should -Not -Throw
+                { Install-Update -Path $TestDrive -WhatIf:$false } | Should -Not -Throw
 
                 $script:startProcessCall.FilePath | Should -Be 'msiexec.exe'
             }

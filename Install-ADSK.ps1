@@ -514,18 +514,22 @@ function Import-RemoteSignedDeploymentModule {
     $certificateRemoteUri = Get-ReleaseAssetDownloadUri -AssetName $CertificateFileName -ReleaseVersion $ModuleVersionPin
 
     Save-RemoteFile -Uri $certificateRemoteUri -DestinationPath $CertificateLocalPath
-    Assert-TrustedCertificateThumbprint -CertificatePath $CertificateLocalPath -TrustedThumbprint $TrustedCertificateThumbprints | Out-Null
-    Add-CertificateToStoreIfMissing -CertificatePath $CertificateLocalPath
 
-    Save-RemoteFile -Uri $moduleRemoteUri -DestinationPath $ModuleLocalPath
-
-    # LOW Issue #2: SHA-256 hash verification for downloaded assets (MITM protection)
+    # SHA-256 hash verification for downloaded assets (MITM protection).
+    # The certificate hash MUST be verified before the certificate is imported into
+    # the machine store - otherwise a tampered certificate would already be trusted
+    # by the time the mismatch is detected.
     if ($ExpectedCertificateHash) {
         $actualCertHash = (Get-FileHash -Path $CertificateLocalPath -Algorithm SHA256).Hash
         if ($actualCertHash -ne $ExpectedCertificateHash) {
             throw "Certificate hash mismatch. Expected: $ExpectedCertificateHash, Actual: $actualCertHash"
         }
     }
+
+    Assert-TrustedCertificateThumbprint -CertificatePath $CertificateLocalPath -TrustedThumbprint $TrustedCertificateThumbprints | Out-Null
+    Add-CertificateToStoreIfMissing -CertificatePath $CertificateLocalPath
+
+    Save-RemoteFile -Uri $moduleRemoteUri -DestinationPath $ModuleLocalPath
 
     if ($ExpectedModuleHash) {
         $actualModuleHash = (Get-FileHash -Path $ModuleLocalPath -Algorithm SHA256).Hash

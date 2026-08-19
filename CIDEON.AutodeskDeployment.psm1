@@ -328,10 +328,13 @@ function Write-InstallLog {
         If set, the log entry will be marked as an info message.
     .PARAMETER Fail
         If set, the log entry will be marked as a failure message.
+    .PARAMETER Warn
+        If set, the log entry will be marked as a warning message. Ignored when -Fail is also set.
 
     .EXAMPLE
         Write-InstallLog -text "This is a log entry." -Info
         Write-InstallLog -text "This is a failure message." -Fail
+        Write-InstallLog -text "This is a warning message." -Warn
 
     .NOTES
         Autor: Timon Först
@@ -345,11 +348,13 @@ function Write-InstallLog {
         [Parameter()]
         [switch]$Info,
         [Parameter()]
-        [switch]$Fail
+        [switch]$Fail,
+        [Parameter()]
+        [switch]$Warn
     )
     if ($Logging.IsPresent) {
-        # choose category based on failure switch only; INFO is default
-        $category = if ($Fail.IsPresent) { 'ERROR' } else { 'INFO' }
+        # choose category by severity: ERROR wins over WARN; INFO is default
+        $category = if ($Fail.IsPresent) { 'ERROR' } elseif ($Warn.IsPresent) { 'WARN' } else { 'INFO' }
         $logMessage = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') [$($category)] $($text)"
         if ($PSCmdlet.ShouldProcess("[$($category)] $($text)", 'Log')) {
             if (-not $WhatIfPreference) {
