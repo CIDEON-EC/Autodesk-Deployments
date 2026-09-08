@@ -282,7 +282,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.version.outputs.tag }}
-        name: Autodesk Deployment Tools ${{ steps.version.outputs.version }}
+        name: ${{ steps.version.outputs.version }}
         body_path: release_notes.md
         files: |
           Autodesk-Deployment-${{ steps.version.outputs.version }}.zip
