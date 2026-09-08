@@ -4,7 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
+## [2.0.1] - 2026-09-08
+### Fixed
+- Fixed `Copy-Local` throwing `PropertyNotFoundException` ("Count" property not found) during `Install` mode when the `Local` folder is missing or contains no subfolders — `Get-ChildItem` result is now wrapped in `@()` so `$SourceFolder` is always a real array instead of `$null` under `Set-StrictMode -Version 3.0`
+### Security
+- Added network path protection in `Dismount-WIM`: when `-Purge` is used, the function now detects network paths (e.g. `\\server\share\file.wim`) and throws a terminating error instead of deleting — this prevents accidental loss of the source WIM on a central deployment share
+- Added warning log in `Copy-WIM` when `-NoDownload` is active, alerting the user that the WIM will be mounted from the server path
 ## [2.0.0] - 2026-06-08
 ### Added
 - Complete new introduction of using a PowerShell module, instead of one script [#5](https://github.com/CIDEON-EC/Autodesk-Depyloments/issues/5)

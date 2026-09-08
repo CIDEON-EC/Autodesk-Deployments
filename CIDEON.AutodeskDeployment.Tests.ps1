@@ -15,7 +15,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             InModuleScope CIDEON.AutodeskDeployment {
                 Set-InstallContext -Context @{ UnitTestVar = 'ok' }
                 $Global:UnitTestVar | Should -Be 'ok'
-                Remove-Variable -Name UnitTestVar -Scope Global -ErrorAction SilentlyContinue
+                Remove-Variable -name UnitTestVar -Scope Global -ErrorAction SilentlyContinue
             }
         }
     }
@@ -350,6 +350,24 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Should -Invoke Register-WIMDismountTask -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
             }
         }
+
+        It 'throws terminating error when purge is requested on a network path' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $networkImage = [pscustomobject]@{
+                    ImagePath = '\\server\share\PDC_2026.wim'
+                    Path      = 'C:\mount'
+                }
+
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Dismount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Remove-Item -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Register-WIMDismountTask -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Dismount-WIM -File $networkImage -Purge } | Should -Throw '*Cannot purge WIM file from network path*'
+
+                Should -Invoke -CommandName Remove-Item -Times 0 -ModuleName 'CIDEON.AutodeskDeployment'
+            }
+        }
     }
 
     Context 'Install-ADSK functions' {
@@ -440,7 +458,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 $configPath = Join-Path -Path $TestDrive -ChildPath 'Collection.xml'
                 Set-Content -Path $configPath -Value '<Collection />'
 
-                Remove-Variable -Name mountPath -Scope Script -ErrorAction SilentlyContinue
+                Remove-Variable -name mountPath -Scope Script -ErrorAction SilentlyContinue
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
                 {
@@ -870,11 +888,11 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 # Call the real ScheduledTasks cmdlets directly (bypassing the Pester mock) to
                 # produce valid CimInstance objects so Register-ScheduledTask parameter-binding succeeds
                 Mock -CommandName New-ScheduledTaskAction -MockWith {
-                    & (Get-Command -Name 'New-ScheduledTaskAction' -Module 'ScheduledTasks') `
+                    & (Get-Command -name 'New-ScheduledTaskAction' -Module 'ScheduledTasks') `
                         -Execute 'powershell.exe' -Argument '-NoProfile'
                 } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName New-ScheduledTaskTrigger -MockWith {
-                    & (Get-Command -Name 'New-ScheduledTaskTrigger' -Module 'ScheduledTasks') -AtStartup
+                    & (Get-Command -name 'New-ScheduledTaskTrigger' -Module 'ScheduledTasks') -AtStartup
                 } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Register-ScheduledTask -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
@@ -1009,6 +1027,29 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Should -Invoke Write-InstallLog -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
                     $text -like '*Source and Target quantities*'
                 }
+            }
+        }
+
+        It 'does not throw when SourceFolder is omitted and the Local folder does not exist (non-WhatIf)' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $sourceRoot = Join-Path -Path $TestDrive -ChildPath 'copylocal_missing'
+                New-Item -Path $sourceRoot -ItemType Directory -Force | Out-Null
+                # deliberately do not create the 'Local' subfolder
+
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Copy-Local -Path $sourceRoot -WhatIf:$false } | Should -Not -Throw
+            }
+        }
+
+        It 'does not throw when SourceFolder is omitted and the Local folder has no subfolders (non-WhatIf)' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $sourceRoot = Join-Path -Path $TestDrive -ChildPath 'copylocal_empty'
+                New-Item -Path (Join-Path -Path $sourceRoot -ChildPath 'Local') -ItemType Directory -Force | Out-Null
+
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Copy-Local -Path $sourceRoot -WhatIf:$false } | Should -Not -Throw
             }
         }
     }

@@ -1480,7 +1480,7 @@ function Copy-Local {
         if (-not $SourceFolder) {
             $localPath = [System.IO.Path]::Combine($Path, 'Local')
             if (-not $WhatIfPreference -or (Test-Path -Path $localPath)) {
-                $SourceFolder = Get-ChildItem -Path $localPath -Directory | Select-Object -ExpandProperty Name
+                $SourceFolder = @(Get-ChildItem -Path $localPath -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
             }
             else {
                 $cachedSource = Get-CachedFiles -Path $localPath -OperationText 'Would copy local files from' -CachedFiles $Script:CachedLocalFolders
@@ -1903,6 +1903,7 @@ function Copy-WIM {
         # copy wim to local path
         if ($noDownload.IsPresent) {
             Write-InstallLog -text 'No Download of WIM file to local folder. Mounting from server.' -Info
+            Write-InstallLog -text 'WARNING: WIM will be mounted directly from server path. Using -Purge with -NoDownload will delete the source WIM on the network share.' -Fail
             # mount wim from network
             $localwimFile = $File.FullName
         }
@@ -2046,10 +2047,15 @@ function Dismount-WIM {
     .DESCRIPTION
         Dismounts the specified WIM file to the specified path. The WIM file is expected to be in the specified path.
 
+        When -Purge is specified, only local WIM files will be deleted. Network paths (e.g. '\\server\share\file.wim')
+        are detected and the deletion is aborted to prevent accidental loss of the source WIM on a network share.
+        This safeguard ensures that the original WIM file from a central deployment share is never deleted.
+
     .PARAMETER Name
         The name of the WIM file to dismount, WIHOUT extension.
     .PARAMETER purge
-        If set, the local WIM file will be deleted after dismounting.
+        If set, the local WIM file will be deleted after dismounting. Network paths are never purged —
+        an error is thrown instead to protect the source WIM on a network share.
     .PARAMETER all
         If set, all WIM files will be dismounted, instead of NAME Parameter.
 
@@ -2148,7 +2154,12 @@ function Dismount-WIM {
                     Write-InstallLog -text "WIM $($image.ImagePath) dismounted" -Info
 
                     if ($purge.IsPresent) {
-                        # delete local wim file
+                        # delete local wim file only — never delete a network source
+                        $isNetworkPath = $image.ImagePath -match '^\\\\[a-zA-Z0-9._-]+'
+                        if ($isNetworkPath) {
+                            Write-InstallLog -text "Refused to delete WIM source '$($image.ImagePath)': detected as network path. Use -NoDownload with -Purge only when the WIM has been copied locally first." -Fail
+                            throw "Cannot purge WIM file from network path '$($image.ImagePath)'. Ensure the WIM is copied locally (without -NoDownload) before using -Purge."
+                        }
                         if ($PSCmdlet.ShouldProcess($image.ImagePath, 'Delete WIM file')) {
                             Remove-Item -Path $image.ImagePath -Force
                             Write-InstallLog -text "WIM $($image.ImagePath) locally deleted" -Info
@@ -2160,6 +2171,10 @@ function Dismount-WIM {
                 }
             }
             catch {
+                # Re-throw non-WIM dismount errors (e.g. network path purge protection)
+                if ($_.Exception.Message -like '*Cannot purge WIM file from network path*') {
+                    throw $_
+                }
                 Register-WIMDismountTask
             }
 
