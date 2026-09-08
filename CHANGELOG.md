@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [2.0.2] - 2026-09-08
+### Fixed
+- Fixed `Update-WIMInspectionCache` and `Install-CIDEONTool` never returning any files: `Get-ChildItem -Exclude ... -File` always returns an empty result when `-Path` has no trailing wildcard, because `-Exclude` only filters the contents of a container when the path expands to it (e.g. `Path\*`) — both calls now pass `Path\*` so files are correctly enumerated and excluded
 ## [2.0.1] - 2026-09-08
 ### Fixed
 - Fixed `Copy-Local` throwing `PropertyNotFoundException` ("Count" property not found) during `Install` mode when the `Local` folder is missing or contains no subfolders — `Get-ChildItem` result is now wrapped in `@()` so `$SourceFolder` is always a real array instead of `$null` under `Set-StrictMode -Version 3.0`

@@ -436,7 +436,8 @@ function Update-WIMInspectionCache {
     # Cache Updates
     $updatesPath = Join-Path $MountedPath 'Updates'
     if (Test-Path $updatesPath) {
-        $Script:CachedUpdateFiles = @(Get-ChildItem -Path $updatesPath -Exclude @('*.txt', '*.xml', 'VBA') -File -ErrorAction SilentlyContinue)
+        # -Exclude requires the Path to include a trailing wildcard when combined with -File, otherwise no results are ever returned.
+        $Script:CachedUpdateFiles = @(Get-ChildItem -Path (Join-Path $updatesPath '*') -Exclude @('*.txt', '*.xml', 'VBA') -File -ErrorAction SilentlyContinue)
     }
     else {
         Write-InstallLog -text "Updates folder not found at: $updatesPath" -Info
@@ -1047,7 +1048,8 @@ function Install-CideonTool {
 
     $filePath = [System.IO.Path]::Combine($Path, 'Cideon')
     if (-not $WhatIfPreference -or (Test-Path -Path $filePath)) {
-        $files = @(Get-ChildItem -Path $filePath -Exclude @('*.txt') -File)
+        # -Exclude requires the Path to include a trailing wildcard when combined with -File, otherwise no results are ever returned.
+        $files = @(Get-ChildItem -Path (Join-Path $filePath '*') -Exclude @('*.txt') -File)
     }
     else {
         $files = Get-CachedFiles -Path $filePath -OperationText 'Would install CIDEON tools from' -CachedFiles $Script:CachedCideonFiles
