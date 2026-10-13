@@ -382,6 +382,37 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
             }
         }
 
+        It 'imports the remote module with an UnknownError chain (self-signed, untrusted root) when the certificate stores are not writable' {
+            Mock -CommandName Invoke-RestMethod -MockWith {
+                [pscustomobject]@{
+                    assets = @(
+                        [pscustomobject]@{ name = 'CIDEON.AutodeskDeployment.psm1'; browser_download_url = 'https://example.invalid/CIDEON.AutodeskDeployment.psm1' },
+                        [pscustomobject]@{ name = 'CIDEON-CodeSigning.cer'; browser_download_url = 'https://example.invalid/CIDEON-CodeSigning.cer' }
+                    )
+                }
+            }
+            Mock -CommandName Invoke-WebRequest -MockWith {}
+            Mock -CommandName New-Object -MockWith {
+                [pscustomobject]@{ Thumbprint = $global:InstallAdskTrustedThumbprint; Subject = 'CN=CIDEON-EC Code Signing' }
+            } -ParameterFilter { $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2' }
+            Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter { $Path -like 'Cert:\*' }
+            Mock -CommandName Import-Certificate -MockWith { throw 'Zugriff verweigert' } -ParameterFilter { $CertStoreLocation -like 'Cert:\*' }
+            Mock -CommandName Write-Warning -MockWith {}
+            Mock -CommandName Get-AuthenticodeSignature -MockWith {
+                [PSCustomObject]@{
+                    Status            = [System.Management.Automation.SignatureStatus]::UnknownError
+                    StatusMessage     = 'Root certificate not trusted by the trust provider.'
+                    SignerCertificate = [pscustomobject]@{ Thumbprint = $global:InstallAdskTrustedThumbprint }
+                }
+            }
+
+            Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
+
+            Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter {
+                $Name -like '*CIDEON.AutodeskDeployment.psm1' -and $Force -eq $true
+            }
+        }
+
         It 'throws when remote loading fails and no local fallback module exists' {
             Mock -CommandName Test-Path -MockWith { $false } -ParameterFilter {
                 $Path -like '*CIDEON.AutodeskDeployment.psm1'

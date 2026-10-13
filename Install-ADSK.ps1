@@ -269,7 +269,7 @@ function Assert-TrustedModuleSignature {
         One or more allowed signer thumbprints.
 
     .PARAMETER AllowUntrustedChain
-        Also accepts the status NotTrusted (intact signature, certificate chain without a
+        Also accepts the status NotTrusted or UnknownError (intact signature, certificate chain without a
         trusted root). Used when the certificate stores are not writable; the thumbprint
         pin is still enforced.
 
@@ -288,8 +288,9 @@ function Assert-TrustedModuleSignature {
 
     $acceptedStatus = @([System.Management.Automation.SignatureStatus]::Valid)
     if ($AllowUntrustedChain) {
-        # NotTrusted = file hash is intact but the chain has no trusted root; the thumbprint pin below still applies
+        # NotTrusted/UnknownError = file hash is intact but the (self-signed) chain has no trusted root; the thumbprint pin below still applies
         $acceptedStatus += [System.Management.Automation.SignatureStatus]::NotTrusted
+        $acceptedStatus += [System.Management.Automation.SignatureStatus]::UnknownError
     }
 
     if ($Signature.Status -notin $acceptedStatus) {

@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [2.1.1] - 2026-10-13
+### Fixed
+- `Install-ADSK.ps1`: the untrusted-chain fallback now also accepts the signature status `UnknownError`, which Windows reports for the self-signed code-signing certificate when the root is not trusted (previously only `NotTrusted`, so module loading still failed). The thumbprint pin is still enforced; `HashMismatch` and `NotSigned` are still rejected.
 ## [2.1.0] - 2026-10-13
 ### Added
 - Release workflow now publishes `Install-ADSK.ps1` as a separate release asset for direct download
