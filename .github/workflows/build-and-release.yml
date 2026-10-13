@@ -56,8 +56,8 @@ jobs:
         $installScriptContent = Get-Content -Path $installScriptPath -Raw
         $updatedInstallScript = [regex]::Replace(
           $installScriptContent,
-          '(?m)^\s*Version:\s*[0-9A-Za-z\.-]+\s*$',
-          "    Version: $version",
+          '(?m)^[ \t]*ModuleVersion:[ \t]*[0-9A-Za-z.-]+[ \t]*(?=\r?$)',
+          "    ModuleVersion: $version",
           1
         )
 
@@ -71,7 +71,7 @@ jobs:
         $moduleContent = Get-Content -Path $modulePath -Raw
         $updatedModule = [regex]::Replace(
           $moduleContent,
-          '(?m)^\s*ModuleVersion:\s*[0-9A-Za-z\.-]+\s*$',
+          '(?m)^[ \t]*ModuleVersion:[ \t]*[0-9A-Za-z.-]+[ \t]*(?=\r?$)',
           "    ModuleVersion: $version",
           1
         )
@@ -262,6 +262,7 @@ jobs:
           $changelogContent
           ''
           '### Release Assets'
+          '- **Install-ADSK.ps1** - Installer script (direct download)'
           '- **CIDEON.AutodeskDeployment.psm1** - Signed module file (direct download)'
           '- **CIDEON-CodeSigning.cer** - Public certificate'
           "- **Autodesk-Deployment-$version.zip** - Full deployment package"
@@ -286,6 +287,7 @@ jobs:
         body_path: release_notes.md
         files: |
           Autodesk-Deployment-${{ steps.version.outputs.version }}.zip
+          Install-ADSK.ps1
           CIDEON.AutodeskDeployment.psm1
           CIDEON-CodeSigning.cer
         draft: false

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [2.1.0] - 2026-10-13
+### Added
+- Release workflow now publishes `Install-ADSK.ps1` as a separate release asset for direct download
+### Fixed
+- Release workflow version replacement no longer swallows the line break after the version line; `Install-ADSK.ps1` now carries a `ModuleVersion:` header that is set from the release tag
+### Changed
+- `Install-ADSK.ps1`: if the code-signing certificate cannot be added to the certificate stores (access denied, e.g. locked by GPO or EDR), the installer now continues with a warning and accepts a module signature with status `NotTrusted`, as long as the signer thumbprint matches the pinned allowlist. A tampered module (`HashMismatch`) is still rejected.
 ## [2.0.2] - 2026-09-08
 ### Fixed
 - Fixed `Update-WIMInspectionCache` and `Install-CIDEONTool` never returning any files: `Get-ChildItem -Exclude ... -File` always returns an empty result when `-Path` has no trailing wildcard, because `-Exclude` only filters the contents of a container when the path expands to it (e.g. `Path\*`) — both calls now pass `Path\*` so files are correctly enumerated and excluded

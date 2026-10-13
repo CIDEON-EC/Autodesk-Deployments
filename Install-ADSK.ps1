@@ -4,7 +4,8 @@
 
 .NOTES
     Author: Timon Först
-    Version: 2.0.0
+    # Module Version is set by workflow during build and should not be edited manually
+    ModuleVersion: 0.0.0
 
 .DESCRIPTION
     Automation of downloading a wim file to a temporary local folder. After
@@ -267,6 +268,11 @@ function Assert-TrustedModuleSignature {
     .PARAMETER TrustedThumbprint
         One or more allowed signer thumbprints.
 
+    .PARAMETER AllowUntrustedChain
+        Also accepts the status NotTrusted (intact signature, certificate chain without a
+        trusted root). Used when the certificate stores are not writable; the thumbprint
+        pin is still enforced.
+
     .NOTES
         Autor: Timon Först
     #>
@@ -276,10 +282,17 @@ function Assert-TrustedModuleSignature {
         $Signature,
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
-        [string[]]$TrustedThumbprint
+        [string[]]$TrustedThumbprint,
+        [switch]$AllowUntrustedChain
     )
 
-    if ($Signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+    $acceptedStatus = @([System.Management.Automation.SignatureStatus]::Valid)
+    if ($AllowUntrustedChain) {
+        # NotTrusted = file hash is intact but the chain has no trusted root; the thumbprint pin below still applies
+        $acceptedStatus += [System.Management.Automation.SignatureStatus]::NotTrusted
+    }
+
+    if ($Signature.Status -notin $acceptedStatus) {
         throw "Module signature is invalid. Status: $($Signature.Status) - $($Signature.StatusMessage)"
     }
 
@@ -500,15 +513,24 @@ function Import-RemoteSignedDeploymentModule {
 
     Save-RemoteFile -Uri $certificateRemoteUri -DestinationPath $CertificateLocalPath
     Assert-TrustedCertificateThumbprint -CertificatePath $CertificateLocalPath -TrustedThumbprint $TrustedCertificateThumbprints | Out-Null
-    Add-CertificateToStoreIfMissing -CertificatePath $CertificateLocalPath
+    try {
+        Add-CertificateToStoreIfMissing -CertificatePath $CertificateLocalPath
+    }
+    catch {
+        # Stores locked by policy/EDR: rely on the pinned thumbprint instead of chain trust
+        Write-Warning "Could not add the certificate to the certificate stores ($($_.Exception.Message)). Continuing with thumbprint pinning only."
+        $script:AllowUntrustedChain = $true
+    }
 
     Save-RemoteFile -Uri $moduleRemoteUri -DestinationPath $ModuleLocalPath
 
     $signature = Get-AuthenticodeSignature -FilePath $ModuleLocalPath
-    Assert-TrustedModuleSignature -Signature $signature -TrustedThumbprint $TrustedCertificateThumbprints
+    Assert-TrustedModuleSignature -Signature $signature -TrustedThumbprint $TrustedCertificateThumbprints -AllowUntrustedChain:$script:AllowUntrustedChain
 
     Import-Module -Name $ModuleLocalPath -Force -ErrorAction Stop
 }
+
+$script:AllowUntrustedChain = $false
 
 try {
     if ($SkipSignatureCheck) {
@@ -535,7 +557,7 @@ catch {
 
     $fallbackSignature = Get-AuthenticodeSignature -FilePath $fallbackLocalModule
     try {
-        Assert-TrustedModuleSignature -Signature $fallbackSignature -TrustedThumbprint $TrustedCertificateThumbprints
+        Assert-TrustedModuleSignature -Signature $fallbackSignature -TrustedThumbprint $TrustedCertificateThumbprints -AllowUntrustedChain:$script:AllowUntrustedChain
     }
     catch {
         throw "Remote module loading failed: $remoteError - fallback module at '$fallbackLocalModule' is also unusable ($($_.Exception.Message))."
