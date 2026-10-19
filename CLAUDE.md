@@ -77,7 +77,7 @@ Follow `.github/instructions/powershell-pester-5.instructions.md` for tests:
 ## Documentation
 
 When changing public function signatures or script parameters, update:
-1. `readme.md` — parameter table and usage examples
+1. `README.md` — parameter table and usage examples
 2. `CHANGELOG.md` — under the appropriate section (`Added`, `Changed`, `Fixed`); prefix breaking changes with **BREAKING**
 3. Comment-based help inside the function itself
 
