@@ -1,4 +1,4 @@
-# Install Autodesk Deployments with WIM
+# Install Autodesk Deployments with a VHDX image (or WIM)
 
 ## 🚀 Workflow
 
@@ -7,7 +7,7 @@
 ```mermaid
 graph TD
     A[📥 Create Autodesk Deployment] --> B[📁 Add Optional Folders]
-    B --> C[📦 Create WIM File]
+    B --> C[📦 Create VHDX Image]
     C --> D[⚙️ Configure Install-ADSK.ps1]
     D --> E[▶️ Execute Installation]
 
@@ -33,10 +33,11 @@ Create these **hardcoded folder names** for additional content:
 | 📁 **Cideon/** | Cideon tools | `CIDEON.Inventor.Toolbox_x64.msi` |
 | 📁 **Local/** | Config files | `ProgramData/`, `Users/` folders |
 
-#### **📦 Step 3: Create WIM File**
-- 🗜️ **Use 7-Zip** to create a WIM file from your deployment folder
+#### **📦 Step 3: Create the image (.vhdx)**
+- 🖱️ **Drag the deployment folder onto `New-DeploymentImage.cmd`** (or run `New-DeploymentImage.ps1 -Source <folder>`). It creates `<folder>.vhdx` next to the folder, asks for administrator rights (UAC) and needs about as much free disk space as the folder
 - 📁 **Include** all subfolders (`image/`, `Updates/`, `Cideon/`, `Local/`)
-- 💾 **Name** the WIM file descriptively (e.g., `PDC_2026.wim`)
+- 💾 **Name** the folder descriptively (e.g., `PDC_2026`), the image gets the same name (`PDC_2026.vhdx`)
+- ⚠️ **A .wim does not work for Autodesk ODIS 2.24+ (Autodesk 2027)**: the installer refuses files inside a mounted WIM (exit code 453). Existing `.wim` images are still supported for older versions
 
 #### **⚙️ Step 4: Configure Install-ADSK.ps1**
 The solution now consists of **installer + module**:
@@ -69,7 +70,7 @@ Choose your preferred method:
 
 ```powershell
 # 🎯 Direct PowerShell execution
-.\Install-ADSK.ps1 -WIM "PDC_2026" -Mode "Install" -Logging
+.\Install-ADSK.ps1 -Image "PDC_2026" -Mode "Install" -Logging
 
 # 📦 Via batch file (see samples/ folder)
 Install-Example.bat
@@ -84,12 +85,12 @@ Install-Example.bat
 cd \\SERVER\SHARE\ScriptLocation
 
 # 🚀 Run installation with logging and cleanup
-.\Install-ADSK.ps1 -WIM "PDC_2026" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging -Purge
+.\Install-ADSK.ps1 -Image "PDC_2026" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging -Purge
 ```
 
 ### ✨ **Pro Tips**
 
-- 🔄 **Version Updates:** Just create a new WIM file for deployment changes
+- 🔄 **Version Updates:** Just create a new image for deployment changes
 - 📁 **Batch Files:** Check the `samples/` folder for common scenarios
 - 🛠️ **Local Copies:** Use `Copy-Local.ps1` as a thin module-backed wrapper for post-installation file copying
 - 📝 **Logging:** Always use `-Logging` for troubleshooting
@@ -144,13 +145,17 @@ The folder structure is based on the default Autodesk deployments. This could lo
 | **📁 Updates/** | Additional product updates to install | ❌ |
 | **📁 Cideon/** | Cideon-specific tools and extensions | ❌ |
 | **📁 Local/** | Local configuration files and user settings | ❌ |
-## Create a WIM
-Use 7-zip to create a wim File from the deployment folder.
+## Create an image (.vhdx)
+Drag the deployment folder onto `New-DeploymentImage.cmd`. Tip: put a shortcut to it into `shell:sendto` (Win+R), then right-click the folder > *Send to* > *New-DeploymentImage*.
+
+The script (`New-DeploymentImage.ps1 -Source <folder> [-VhdxPath <file>] [-Force]`) creates an expandable VHDX with `diskpart` (no Hyper-V module needed), formats it with NTFS and copies the folder content into it. The VHDX is about 1.6x the size of the WIM of the same folder, because it is not compressed. Install-ADSK.ps1 attaches it with `Mount-DiskImage` into the same mount folder a WIM used.
+
+`-Image` takes the name without extension; if both `<name>.vhdx` and `<name>.wim` exist, the `.vhdx` is used. `-NoDownload` (mount from the server) only works for `.wim`, because a VHDX cannot be attached from a network share.
 
 ## Change the Install-ADSK.ps1 for your needs
 The script has two sections:
 1. **Module Loader** — Loads `CIDEON.AutodeskDeployment.psm1` from GitHub and validates the Authenticode signature.
-2. **Code** — Calls `Invoke-DeploymentWorkflow -ModeHandler { … }`. The module handles version validation, logging, WIM discovery, mount paths, error handling and WIM dismount. You only supply the mode-specific logic (`Install` / `Update` / `Uninstall`) inside the `switch ($Mode)` block.
+2. **Code** — Calls `Invoke-DeploymentWorkflow -ModeHandler { … }`. The module handles version validation, logging, image discovery (.vhdx or .wim), mount paths, error handling and image dismount. You only supply the mode-specific logic (`Install` / `Update` / `Uninstall`) inside the `switch ($Mode)` block.
 
 All helper functions are documented in `CIDEON.AutodeskDeployment.psm1`.
 
@@ -175,7 +180,7 @@ The installer resolves the module and certificate from GitHub Release assets:
 
 ## FAQ
 ### What if I need to change the Autodesk deployment or change/add files?
-The fastest way is just to create a new WIM file from the deployment folder
+The fastest way is just to create a new image from the deployment folder (drag it onto `New-DeploymentImage.cmd`)
 <br><br>
 
 ### How to call the powershells and with wich parameters?
@@ -212,16 +217,16 @@ You can find this in the file itself, but here is an overview.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| **WIM** | String | ✅ | - | Name of the WIM file you want to use |
+| **Image** | String | ✅ | - | Name of the image file without extension (`.vhdx` is used if it exists, otherwise `.wim`). Former name: `-WIM` (still works as alias) |
 | **Mode** | String | ✅ | - | Mode to execute: `Install`, `Uninstall`, `Update` |
-| **Path** | String | ❌ | Script location | Path to the WIM file. Not needed if WIM is in same folder as script |
-| **LocalFolder** | String | ❌ | `C:\Temp` | Local folder where WIM file should be downloaded and mapped |
-| **Files** | String Array | ❌ | `@("Collection")` | XML filenames WITHOUT extension for installation. Before each install, `LoggingSettings` in the selected XML is enforced to `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deployment-<WIM>.log` |
+| **Path** | String | ❌ | Script location | Path to the image file. Not needed if the image is in same folder as script |
+| **LocalFolder** | String | ❌ | `C:\Temp` | Local folder where the image file should be downloaded and mapped |
+| **Files** | String Array | ❌ | `@("Collection")` | XML filenames WITHOUT extension for installation. Before each install, `LoggingSettings` in the selected XML is enforced to `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deployment-<Image>.log` |
 | **Version** | String | ❌ | Auto-extracted | Software version for Cideon tools and logging |
 | **ModuleVersionPin** | String | ❌ | Latest Release | Pins online module/certificate download to a specific release version (e.g. `1.2.0`) |
 | **Logging** | Switch | ❌ | `$false` | Enable log file creation in local folder |
-| **NoDownload** | Switch | ❌ | `$false` | Mount WIM from server instead of copying locally |
-| **Purge** | Switch | ❌ | `$false` | Delete WIM file after completion (cannot be combined with `-NoDownload`) |
+| **NoDownload** | Switch | ❌ | `$false` | Mount the image from the server instead of copying locally (`.wim` only) |
+| **Purge** | Switch | ❌ | `$false` | Delete the local image file after completion (cannot be combined with `-NoDownload`) |
 | **WhatIf** | Switch | ❌ | `$false` | Dry run mode: shows what would happen without making changes |
 | **Confirm** | Switch | ❌ | `$false` | Prompts for confirmation before executing actions |
 | **ForceQuit** | Switch | ❌ | `$false` | Quits running Autodesk Applications (Inventor, AutoCAD, Vault) |
@@ -234,32 +239,32 @@ cd \\SERVER\SHARE\ScriptLocation
 # Call Installation
 ## Path is needed because the deployment is stored on another location
 ## Logging enabled
-## Purge enabled (deletes WIM locally)
-.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging -Purge
+## Purge enabled (deletes the image locally)
+.\Install-ADSK.ps1 -Image "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging -Purge
 ```
 ```powershell
 # Call Installation
 ## Path is not needed, because Install-ADSK.ps1 is parallel to the deployment folder
 ## Logging enabled
-## The WIM will not be downloaded, it will be mounted from the server directly (slower installation)
+## The image will not be downloaded, it will be mounted from the server directly (slower installation, .wim only)
 ### Instead of default Collection.xml, the Inventor_only.xml is used
-.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Logging -NoDownload -Files "Inventor_only"
+.\Install-ADSK.ps1 -Image "PDC_20XX" -Mode "Install" -Logging -NoDownload -Files "Inventor_only"
 ```
 ```powershell
 # Dry run (preview all actions)
-.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -WhatIf
+.\Install-ADSK.ps1 -Image "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -WhatIf
 ```
 ```powershell
 # Pin online module download to release 1.2.0 (default is latest release)
-.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -ModuleVersionPin "1.2.0"
+.\Install-ADSK.ps1 -Image "PDC_20XX" -Mode "Install" -ModuleVersionPin "1.2.0"
 ```
 ```powershell
 # Uninstall mode
-.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Uninstall" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
+.\Install-ADSK.ps1 -Image "PDC_20XX" -Mode "Uninstall" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
 ```
 ```powershell
 # Update mode
-.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Update" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
+.\Install-ADSK.ps1 -Image "PDC_20XX" -Mode "Update" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
 ```
 
 ## Function Reference
@@ -268,8 +273,8 @@ cd \\SERVER\SHARE\ScriptLocation
 
 | Function | Description | Required Parameters | Optional Parameters |
 |----------|-------------|-------------------|-------------------|
-| **Set-InstallContext** | Stores deployment context values (Version, LogFile, wimFile, mountPath, etc.) as global variables so all module functions share state | `Context` | - |
-| **Invoke-DeploymentWorkflow** | Orchestrates the full WIM deployment lifecycle (version validation, logging, WIM discovery, mount/dismount, error handling) and invokes a caller-supplied ScriptBlock for mode-specific logic | `ModeHandler` | - |
+| **Set-InstallContext** | Stores deployment context values (Version, LogFile, imageFile, mountPath, etc.) as global variables so all module functions share state | `Context` | - |
+| **Invoke-DeploymentWorkflow** | Orchestrates the full image deployment lifecycle (version validation, logging, image discovery, mount/dismount, error handling) and invokes a caller-supplied ScriptBlock for mode-specific logic | `ModeHandler` | - |
 | **Write-InstallLog** | Writes log entries to file (if logging enabled) | `text` | `Info`, `Fail` |
 | **Write-InstallProgress** | Writes compact progress status to the host; suppressed when `-Quiet` is active | `Text` | `Fail` |
 | **Update-WIMInspectionCache** | Inspects and caches WIM folder/file metadata for later use | `MountedPath` | - |
@@ -290,9 +295,9 @@ cd \\SERVER\SHARE\ScriptLocation
 | **Set-CIDEONLanguageVariable** | Sets Cideon language environment variables | - | - |
 | **Set-CIDEONVariable** | Sets Cideon environment variables | - | `Version` |
 | **Rename-RegistryInstallationPath** | Renames registry installation paths | - | - |
-| **Copy-WIM** | Copies WIM file from network share to local machine | `File` | `Folder` |
-| **Mount-WIM** | Mounts WIM file to specified path; in WhatIf mode performs read-only inspection mount | `File` | `Path` |
-| **Dismount-WIM** | Dismounts WIM file | `Name` | `purge`, `all` |
+| **Copy-DeploymentImage** | Copies the image file (.vhdx or .wim) from network share to local machine. Former name `Copy-WIM` still works | `File` | `Folder` |
+| **Mount-DeploymentImage** | Mounts the image to the specified folder (.wim with `Mount-WindowsImage`, .vhdx with `Mount-DiskImage` + folder access path); in WhatIf mode performs read-only inspection mount. Former name `Mount-WIM` still works | `File` | `Path` |
+| **Dismount-DeploymentImage** | Dismounts the image (.wim or .vhdx) and removes the mount folder. Former name `Dismount-WIM` still works | `File` | `purge`, `all` |
 | **Register-WIMDismountTask** | Registers scheduled task for WIM dismount | - | - |
 | **Set-AutodeskUpdate** | Configures Autodesk update settings | One of: `Enable`, `ShowOnly`, `Disable` | - |
 | **Get-AppLogError** | Retrieves application log errors | - | - |
@@ -309,10 +314,10 @@ cd \\SERVER\SHARE\ScriptLocation
 - `Install-AutodeskDeployment`, `Uninstall-AutodeskDeployment`, `Set-AutodeskDeployment`
 - `Install-Update`, `Install-CideonTool`
 
-#### **WIM Management**
-- `Copy-WIM`, `Mount-WIM`, `Dismount-WIM`, `Register-WIMDismountTask`
+#### **Image Management**
+- `Copy-DeploymentImage`, `Mount-DeploymentImage`, `Dismount-DeploymentImage`, `Register-WIMDismountTask` (old `*-WIM` names are aliases)
 
-#### **WIM Inspection & Simulation**
+#### **Image Inspection & Simulation**
 - `Update-WIMInspectionCache`, `Get-CachedFiles`
 
 #### **System Configuration**

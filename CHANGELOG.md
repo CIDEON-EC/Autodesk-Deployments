@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [Unreleased]
+### Added
+- `New-DeploymentImage.ps1` / `New-DeploymentImage.cmd`: creates a `.vhdx` deployment image from a deployment folder (drag the folder onto the `.cmd`; replaces the 7-Zip WIM step). Uses `diskpart`, no Hyper-V module needed, starts itself elevated. Included in the release package and as release assets.
+- Images can be `.vhdx` or `.wim`; the extension is detected (`<Image>.vhdx` is preferred over `<Image>.wim`). A VHDX is attached with `Mount-DiskImage` and mapped to the same mount folder, so all other functions keep working.
+### Changed
+- **BREAKING (compatible via aliases)**: parameter `-WIM` of `Install-ADSK.ps1` is now `-Image` (`-WIM` still works as alias, also with an extension); `Copy-WIM`, `Mount-WIM`, `Dismount-WIM` are now `Copy-DeploymentImage`, `Mount-DeploymentImage`, `Dismount-DeploymentImage` (old names are exported aliases); the install context variables `$WIM` and `$wimFile` are now `$Image` and `$imageFile`. `Register-WIMDismountTask` and `Update-WIMInspectionCache` keep their names.
+- `-NoDownload` is not supported for `.vhdx` images (a VHDX cannot be attached from a network share); `Copy-DeploymentImage` throws a clear error.
+- A VHDX is mounted read-write, so changes the installer makes in the image (e.g. the rewritten `Collection.xml`) persist in the local copy.
+- Release process: a release is now triggered by changing the `VERSION` file on `main` instead of pushing a `v*` tag; the workflow creates the tag. Removed the tag tasks from `.vscode/tasks.json` (see `.github/workflows/README.md`).
+- Pester tests moved to `tests/`; `.scripts/Invoke-PesterTests.ps1` runs every `tests/*.Tests.ps1`.
+- `Install-AutodeskDeployment`: waits for the started `Installer.exe` process and logs its exit code and duration; a non-zero exit code is logged as an error instead of always reporting success.
+### Fixed
+- `Install-ADSK.ps1` with Autodesk ODIS 2.24+ (Autodesk 2027): `Installer.exe` refused every file inside a mounted WIM (`file missing or not a regular file`, exit code 453 after < 1 s, no deployment log), because files in a mounted WIM are reparse points (tag `0x80000008`). For these versions use a `.vhdx` image (see `New-DeploymentImage.ps1`): its files are regular files. `.wim` images remain supported for older versions.
+- `Dismount-WIM`: `-Purge` of `Install-ADSK.ps1` is now honoured when the ModeHandler calls a plain `Dismount-WIM` (the WIM was dismounted there, so the final purge in `Invoke-DeploymentWorkflow` found nothing mounted and never deleted the local WIM). Network paths and `-NoDownload` are still never purged.
+- `Install-AutodeskDeployment`: the deployment log is now named `Install-ADSK-Deployment-<WIM>.log` (typo `Deplyoment` fixed, as documented in the readme).
 ## [2.1.1] - 2026-10-13
 ### Fixed
 - `Install-ADSK.ps1`: the untrusted-chain fallback now also accepts the signature status `UnknownError`, which Windows reports for the self-signed code-signing certificate when the root is not trusted (previously only `NotTrusted`, so module loading still failed). The thumbprint pin is still enforced; `HashMismatch` and `NotSigned` are still rejected.

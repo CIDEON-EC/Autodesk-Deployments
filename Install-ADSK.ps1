@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Automation of using the wim file localy and start the installation/uninstallation
+    Automation of using the image file (.vhdx or .wim) localy and start the installation/uninstallation
 
 .NOTES
     Author: Timon Först
@@ -8,12 +8,15 @@
     ModuleVersion: 0.0.0
 
 .DESCRIPTION
-    Automation of downloading a wim file to a temporary local folder. After
-	that the wim file will mount in the local folder. You can choose if you
-    want to install or uninstall a product. At the end, the wim file will
-	dismount and the wim file will be deleted.
+    Automation of downloading an image file (.vhdx or .wim) to a temporary local folder. After
+	that the image file will mount in the local folder. You can choose if you
+    want to install or uninstall a product. At the end, the image file will
+	dismount and the image file will be deleted.
 
-    Folder structure inside of the wim file:
+    Use New-DeploymentImage.ps1 (or drag the folder onto New-DeploymentImage.cmd) to create a .vhdx from a deployment folder.
+    A .vhdx is required for Autodesk ODIS 2.24+, because files inside a mounted .wim are reparse points that the installer refuses (exit code 453).
+
+    Folder structure inside of the image file:
     ├──  PDC_20XX                   (name of the Autodesk deployment)
     │   ├── image                   (default from Autodesk deployment)
     │   │   ├── AMECH_PP_20XX_de-DE
@@ -48,29 +51,30 @@
 
 
 .PARAMETER Path
-    The path to the WIM file. Default is script location.
-	You don't need to set it, when the WIM file is in the same folder as the script.
-.PARAMETER WIM
-    Name of the WIM file you want to use.
+    The path to the image file. Default is script location.
+	You don't need to set it, when the image file is in the same folder as the script.
+.PARAMETER Image
+    Name of the image file you want to use, without extension (alias: WIM). The extension is detected:
+    <Image>.vhdx is used if it exists, otherwise <Image>.wim.
 .PARAMETER LocalFolder
-    Local folder where the wim file should be downloaded and mapped.
+    Local folder where the image file should be downloaded and mapped.
 	Default is C:\Temp
     You have to set this, if you have localy only in specified folder install rights.
 .PARAMETER Mode
     Available: Install, Uninstall, Update
-	Mode that you want to execute. Start the batchfile  inside the wim file.
+	Mode that you want to execute. Start the batchfile  inside the image file.
 .PARAMETER Files
     Array of XML filenames WIHOUT extension, default "Collection"
     Files that should be used for the installation.
 .PARAMETER Version
     Optional. The Software Version for installing cideon tools and logging.
-    It will be extracted from the WIM name, if a 4 digit number is found.
+    It will be extracted from the image name, if a 4 digit number is found.
 .PARAMETER Logging
     Enable log file. The log file will be created in the local folder.
 .PARAMETER NoDownload
-    Disable Copying of the WIM file to the local folder. The WIM file will be mounted from the server.
+    Disable Copying of the image file to the local folder. The image file will be mounted from the server (.wim only).
 .PARAMETER Purge
-    Deletes the WIM file after finishing the script. NOT COMBINED with NoDownload!
+    Deletes the image file after finishing the script. NOT COMBINED with NoDownload!
 .PARAMETER ModuleVersionPin
     Optional. Pins the online module download to a specific GitHub Release version (e.g. 1.2.0).
     If omitted, the module and certificate are downloaded from the latest GitHub Release.
@@ -87,20 +91,20 @@
     For development/testing use only - do NOT use in production environments.
 .EXAMPLE
 cd \\SERVER\SHARE\ScriptLocation
-.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
+.\Install-ADSK.ps1 -Image "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
 
 #When using "CMD" instead of powershell (as admin):
 cd \\SERVER\SHARE\ScriptLocation
-powershell.exe -ExecutionPolicy Bypass .\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
+powershell.exe -ExecutionPolicy Bypass .\Install-ADSK.ps1 -Image "PDC_20XX" -Mode "Install" -Path "\\SERVER\SHARE\DEPLOYMENT" -Logging
 
 # Pin remote module to release version 1.2.0 (default is latest release):
-.\Install-ADSK.ps1 -WIM "PDC_20XX" -Mode "Install" -ModuleVersionPin "1.2.0"
+.\Install-ADSK.ps1 -Image "PDC_20XX" -Mode "Install" -ModuleVersionPin "1.2.0"
 
 
 #>
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param (
-    [Parameter(Mandatory = $false, HelpMessage = 'specified location of the wim file.')]
+    [Parameter(Mandatory = $false, HelpMessage = 'specified location of the image file.')]
     [ValidateNotNullOrEmpty()]
     [ValidateScript({
             if (Test-Path $_ -PathType Container) {
@@ -112,9 +116,10 @@ param (
         })]
     [String]$Path = $PSScriptRoot,
 
-    [Parameter(Mandatory = $true, HelpMessage = 'specified the wim filename without extension.')]
+    [Parameter(Mandatory = $true, HelpMessage = 'specified the image filename (.vhdx or .wim) without extension.')]
     [ValidateNotNullOrEmpty()]
-    [String]$WIM,
+    [Alias('WIM')]
+    [String]$Image,
 
     [Parameter(Mandatory = $false, HelpMessage = 'Changes the default location from of the local temp folder.')]
     [ValidateNotNullOrEmpty()]
@@ -125,9 +130,9 @@ param (
     [ValidateSet('Install', 'Update', 'Uninstall')]
     [string]$Mode,
 
-    [Parameter(Mandatory = $false, HelpMessage = 'The Software Version, if none is specified, it will be extracted from the WIM name.')]
+    [Parameter(Mandatory = $false, HelpMessage = 'The Software Version, if none is specified, it will be extracted from the image name.')]
     [ValidateNotNullOrEmpty()]
-    [string]$Version = [regex]::Match($WIM, '\d{4}').Value,
+    [string]$Version = [regex]::Match($Image, '\d{4}').Value,
 
     [Parameter(Mandatory = $false, HelpMessage = 'An array of XML filenames without extension, default <<Collection>>')]
     [ValidateNotNullOrEmpty()]
@@ -136,10 +141,10 @@ param (
     [Parameter(Mandatory = $false, HelpMessage = 'Enable log file')]
     [switch]$Logging,
 
-    [Parameter(Mandatory = $false, HelpMessage = 'Disable Copying of the WIM file to the local folder')]
+    [Parameter(Mandatory = $false, HelpMessage = 'Disable Copying of the image file to the local folder')]
     [switch]$NoDownload,
 
-    [Parameter(Mandatory = $false, HelpMessage = 'Deletes the WIM file after finishing the script')]
+    [Parameter(Mandatory = $false, HelpMessage = 'Deletes the image file after finishing the script')]
     [switch]$Purge,
 
     [Parameter(Mandatory = $false, HelpMessage = 'Optional: Pin remote module download to a specific release version (e.g. 1.2.0 or 2.0.0-beta.1). Default is latest release.')]
@@ -169,9 +174,8 @@ if (-not (Test-IsElevated)) {
     throw 'This script must be run as administrator.'
 }
 
-if ($WIM.EndsWith('.wim', [System.StringComparison]::OrdinalIgnoreCase)) {
-    $WIM = $WIM.Substring(0, $WIM.Length - 4)
-}
+# the image name may be given with its extension
+$Image = $Image -replace '\.(wim|vhdx)$', ''
 
 
 $ModuleName = 'CIDEON.AutodeskDeployment'
@@ -572,7 +576,7 @@ catch {
 
 Set-InstallContext -Context @{
     Path        = $Path
-    WIM         = $WIM
+    Image       = $Image
     LocalFolder = $LocalFolder
     Mode        = $Mode
     Version     = $Version
@@ -625,11 +629,11 @@ Invoke-DeploymentWorkflow -ModeHandler {
     ##################################
     switch ($Mode) {
         'Install' {
-            # Copy WIM file to local path
-            Copy-WIM
+            # Copy image file to local path
+            Copy-DeploymentImage
 
-            # Mount WIM (in WhatIf mode: read-only inspection mount)
-            Mount-WIM
+            # Mount image (in WhatIf mode: read-only inspection mount)
+            Mount-DeploymentImage
 
             # install autodesk software
             Install-AutodeskDeployment
@@ -652,21 +656,21 @@ Invoke-DeploymentWorkflow -ModeHandler {
             # alternative: Set-InventorProjectFile -File "C:\Vault_Work\CDN_Vault\CDN_Vault.ipj"
             # Set-InventorProjectFile -File "C:\Vault_Work\CDN_Vault\CDN_Vault.ipj"
 
-            # Dismount wim and delete local wim file
-            # Dismount-WIM -purge
-            Dismount-WIM
+            # Dismount image and delete local image file
+            # Dismount-DeploymentImage -purge
+            Dismount-DeploymentImage
         }
         'Update' {
-            # mount wim from network
-            Mount-WIM
+            # mount image from network (.wim only)
+            Mount-DeploymentImage
 
-            # install updates from wim
+            # install updates from image
             Install-Update
             # copy local configuration files (e.g. license files)
             Copy-Local
 
-            # Dismount wim from network
-            Dismount-WIM
+            # Dismount image from network
+            Dismount-DeploymentImage
         }
         'Uninstall' {
             # Uninstall all CIDEON Tools with windows Installer
