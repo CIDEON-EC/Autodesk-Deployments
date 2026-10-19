@@ -761,7 +761,7 @@ function Install-AutodeskDeployment {
         }
 
         $installerPath = [System.IO.Path]::Combine($Path, 'Image', 'Installer.exe')
-        $installerArgs = "-i deploy --offline_mode -q -o $ConfigFullFilename"
+        $installerArgs = "-i deploy --offline_mode -q -o `"$ConfigFullFilename`""
         if ($PSCmdlet.ShouldProcess($configName, "Install Autodesk Deployment with arguments: $installerArgs")) {
             Write-InstallProgress -Text "Starting Autodesk deployment: $configName"
             Start-Process -FilePath $installerPath -ArgumentList $installerArgs -PassThru | Out-Null
@@ -928,6 +928,7 @@ function Set-AutodeskDeployment {
         [System.Xml.XmlNamespaceManager]$ns = New-Object System.Xml.XmlNamespaceManager $xml.NameTable
         # Use the document's default namespace (often defined on the root node)
         $ns.AddNamespace('x', $xml.DocumentElement.NamespaceURI)
+        $changed = $false
         # Language Packs
         if ($Language.Length -gt 0) {
             try {
@@ -952,6 +953,7 @@ function Set-AutodeskDeployment {
                             Write-InstallLog -text "Package $packageName will be removed" -Info
                             # remove the package from the xml file
                             $package.ParentNode.RemoveChild($package) | Out-Null
+                            $changed = $true
                         }
                     }
                 }
@@ -973,20 +975,22 @@ function Set-AutodeskDeployment {
                     $packageName = $package.GetAttribute('name')
                     if ($PSCmdlet.ShouldProcess("Remove package $packageName from $xmlPath")) {
                         Write-InstallLog -text "Package $packageName will be removed" -Info
+                        $package.ParentNode.RemoveChild($package) | Out-Null
+                        $changed = $true
                     }
-                    # remove the package from the xml file (always, even if ShouldProcess is disabled)
-                    $package.ParentNode.RemoveChild($package) | Out-Null
                 }
             }
         }
 
-        # saving changes to xml
-        try {
-            $xml.Save($xmlPath)
-            Write-InstallLog -text "Saved changes to $xmlPath" -Info
-        }
-        catch {
-            Write-InstallLog -text "Could not save changes to $xmlPath" -Fail
+        # saving changes to xml (nothing to save under -WhatIf or when every removal was declined)
+        if ($changed) {
+            try {
+                $xml.Save($xmlPath)
+                Write-InstallLog -text "Saved changes to $xmlPath" -Info
+            }
+            catch {
+                Write-InstallLog -text "Could not save changes to $xmlPath" -Fail
+            }
         }
 
     }
@@ -1255,7 +1259,8 @@ function Get-RealUserName {
         }
         catch {
             Write-InstallLog -text "Could not determine normal user name: $($_.Exception.Message)" -Fail
-            return $env:USERNAME
+            # no return here: the end block returns, a second return would emit two values
+            $normalUserName = $env:USERNAME
         }
     }
 
@@ -1621,8 +1626,13 @@ function Uninstall-Program {
             # Write-InstallLog -text "$($installedProduct) will be uninstalled" -Info
             # gets the string before the first / - this is the exe filepath
             $uninstaller = $installedProduct.UninstallString
+            # MSI: the registry often has "MsiExec.exe /I{GUID}", which runs a silent repair instead of an uninstall
+            if ($uninstaller -match 'msiexec' -and $uninstaller -match '\{[0-9A-F-]+\}') {
+                $filePath = 'msiexec.exe'
+                $arguments = "/x $($Matches[0]) /quiet /passive"
+            }
             # msiexec with / arguments
-            if ($uninstaller -match '/') {
+            elseif ($uninstaller -match '/') {
                 $filePath = ($installedProduct.UninstallString -split '/' , 2)[0].Trim()
                 # gets the string after the first / - these are the arguments
                 # we have to add the first / again, and put quiet after the additional arguments
@@ -1910,16 +1920,30 @@ function Copy-WIM {
             $localwimFile = $File.FullName
         }
         else {
-            # check if wim file exists
+            # reuse an existing local WIM only if it still matches the source (Copy-Item keeps LastWriteTime)
+            $isCurrent = $false
             if ([System.IO.File]::Exists($localwimFile)) {
-                Write-InstallLog -text 'WIM file already exists, no download needed' -Info
-            }
-            else {
-                if ($PSCmdlet.ShouldProcess($File.FullName, "Copy WIM to $Folder")) {
-                    Write-InstallLog -text "Copy $($File.FullName) to $Folder" -Info
-                    Copy-Item $File.FullName $Folder -Force
-                    Write-InstallLog -text 'WIM file copied' -Info
+                $localInfo = Get-Item -Path $localwimFile
+                $isCurrent = $localInfo.Length -eq $File.Length -and
+                [Math]::Abs(($localInfo.LastWriteTime - $File.LastWriteTime).TotalSeconds) -le 2
+                if ($isCurrent) {
+                    Write-InstallLog -text 'WIM file already exists, no download needed' -Info
                 }
+                else {
+                    Write-InstallLog -text 'Local WIM file differs from source (size or modification time), copying again' -Info
+                }
+            }
+            if (-not $isCurrent -and $PSCmdlet.ShouldProcess($File.FullName, "Copy WIM to $Folder")) {
+                Write-InstallLog -text "Copy $($File.FullName) to $Folder" -Info
+                try {
+                    Copy-Item $File.FullName $Folder -Force -ErrorAction Stop
+                }
+                catch {
+                    # every following step needs the WIM: HardAbort stops the workflow instead of the ModeHandler trap continuing
+                    $_.Exception.Data['HardAbort'] = $true
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+                Write-InstallLog -text 'WIM file copied' -Info
             }
         }
     }
@@ -2022,18 +2046,25 @@ function Mount-WIM {
             return
         }
 
-        # Normal mode: mount WIM
-        if ($PSCmdlet.ShouldProcess($File.FullName, "Mount WIM to $Path")) {
-            Mount-WindowsImage -ImagePath $File.FullName -Index 1 -Path $Path | Out-Null
-            Write-InstallLog -text "WIM $File.FullName mounted to $Path" -Info
-        }
-
-        # check if configfile exists
-        foreach ($ConfigFullFilename in $ConfigFullFilenames) {
-            if (-not [System.IO.File]::Exists($ConfigFullFilename)) {
-                Write-InstallLog -text "ConfigFile $ConfigFullFilename does not exist" -Fail
-                throw "ConfigFile $ConfigFullFilename does not exist"
+        try {
+            # Normal mode: mount WIM
+            if ($PSCmdlet.ShouldProcess($File.FullName, "Mount WIM to $Path")) {
+                Mount-WindowsImage -ImagePath $File.FullName -Index 1 -Path $Path -ErrorAction Stop | Out-Null
+                Write-InstallLog -text "WIM $File.FullName mounted to $Path" -Info
             }
+
+            # check if configfile exists
+            foreach ($ConfigFullFilename in $ConfigFullFilenames) {
+                if (-not [System.IO.File]::Exists($ConfigFullFilename)) {
+                    Write-InstallLog -text "ConfigFile $ConfigFullFilename does not exist" -Fail
+                    throw "ConfigFile $ConfigFullFilename does not exist"
+                }
+            }
+        }
+        catch {
+            # every following step needs the mount: HardAbort stops the workflow instead of the ModeHandler trap continuing
+            $_.Exception.Data['HardAbort'] = $true
+            $PSCmdlet.ThrowTerminatingError($_)
         }
     }
 
@@ -2234,6 +2265,8 @@ function Set-AutodeskUpdate {
         Sets the Autodesk update settings in the registry.
     .DESCRIPTION
         Sets the Autodesk update settings in the registry. This is used to enable or disable or shows only the updates.
+        The value is written to the hive of the logged-on user (HKEY_USERS\<SID>); if the SID cannot be resolved
+        or the hive is not loaded, HKCU is used. Exactly one of -Enable, -ShowOnly or -Disable is required.
     .PARAMETER Enable
         Enables the installation of updates.
     .PARAMETER ShowOnly
@@ -2268,14 +2301,32 @@ function Set-AutodeskUpdate {
     if ($Enable) {
         $Value = 0
     }
-    if ($ShowOnly) {
+    elseif ($ShowOnly) {
         $Value = 2
     }
-    if ($Disable) {
+    elseif ($Disable) {
         $Value = 1
     }
-    # Path to Registry
+    else {
+        $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+            [System.ArgumentException]::new('One of -Enable, -ShowOnly or -Disable must be specified.'),
+            'NoUpdateSettingSpecified',
+            [System.Management.Automation.ErrorCategory]::InvalidArgument,
+            $null
+        )
+        $PSCmdlet.ThrowTerminatingError($errorRecord)
+    }
+    # Path to Registry: the logged-on user's hive, because HKCU of an elevated or SYSTEM run is the wrong user
     $ODISPath = 'HKCU:\SOFTWARE\Autodesk\ODIS'
+    try {
+        $sid = Get-UserSID -DomainUser
+        if ($sid -and (Test-Path -Path "Registry::HKEY_USERS\$sid")) {
+            $ODISPath = "Registry::HKEY_USERS\$sid\SOFTWARE\Autodesk\ODIS"
+        }
+    }
+    catch {
+        Write-InstallLog -text "Could not resolve the user SID, using HKCU for the ODIS setting: $($_.Exception.Message)" -Info
+    }
 
     if ($PSCmdlet.ShouldProcess("$ODISPath", "Set DisableManualUpdateInstall to $Value")) {
         # Check if ODIS Key exists
@@ -2326,10 +2377,13 @@ function Get-AppLogError {
 
     begin {
 
-        # Check Windows Application logs for errors
-        $logErrors = Get-WinEvent -LogName Application -ErrorAction SilentlyContinue | Where-Object { $_.LevelDisplayName -eq 'Error' -and $_.TimeCreated -gt $Start }
-        # filter for MsiInstaller errors
-        $logErrors = $logErrors | Where-Object { $_.ProviderName -like 'MsiInstaller' }
+        # MsiInstaller errors (Level 2) since $Start, filtered by the event log service instead of loading the whole log
+        $logErrors = Get-WinEvent -FilterHashtable @{
+            LogName      = 'Application'
+            ProviderName = 'MsiInstaller'
+            Level        = 2
+            StartTime    = $Start
+        } -ErrorAction SilentlyContinue
     }
 
     process {

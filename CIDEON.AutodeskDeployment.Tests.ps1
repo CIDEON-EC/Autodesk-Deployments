@@ -180,9 +180,85 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 }
             }
         }
+
+        It 'copies again when the existing local WIM differs from the source' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $sourceFolder = Join-Path -Path $TestDrive -ChildPath 'source-stale'
+                $targetFolder = Join-Path -Path $TestDrive -ChildPath 'target-stale'
+                New-Item -Path $sourceFolder, $targetFolder -ItemType Directory | Out-Null
+
+                $sourcePath = Join-Path -Path $sourceFolder -ChildPath 'PDC_2026.wim'
+                Set-Content -Path $sourcePath -Value 'new-wim-content'
+                $localPath = Join-Path -Path $targetFolder -ChildPath 'PDC_2026.wim'
+                Set-Content -Path $localPath -Value 'old'
+
+                $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($false)
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Set-InstallContext -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Copy-WIM -File (Get-Item -Path $sourcePath) -Folder $targetFolder
+
+                Get-Content -Path $localPath | Should -Be 'new-wim-content'
+            }
+        }
+
+        It 'marks a failed copy as HardAbort' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $sourceFolder = Join-Path -Path $TestDrive -ChildPath 'source-fail'
+                New-Item -Path $sourceFolder -ItemType Directory | Out-Null
+                $sourcePath = Join-Path -Path $sourceFolder -ChildPath 'PDC_2026.wim'
+                Set-Content -Path $sourcePath -Value 'wim'
+
+                $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($false)
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Copy-Item -MockWith { throw 'share not reachable' } -ModuleName 'CIDEON.AutodeskDeployment'
+
+                $caught = $null
+                try { Copy-WIM -File (Get-Item -Path $sourcePath) -Folder (Join-Path -Path $TestDrive -ChildPath 'target-fail') } catch { $caught = $_ }
+
+                $caught | Should -Not -BeNullOrEmpty
+                $caught.Exception.Data['HardAbort'] | Should -BeTrue
+            }
+        }
     }
 
     Context 'Set-AutodeskUpdate' {
+        BeforeEach {
+            # without this mock the tests would resolve the SID of the user running them
+            Mock -CommandName Get-UserSID -MockWith { $null } -ModuleName 'CIDEON.AutodeskDeployment'
+        }
+
+        It 'throws when none of -Enable, -ShowOnly or -Disable is given' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                Mock -CommandName Set-ItemProperty -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Set-AutodeskUpdate } | Should -Throw '*must be specified*'
+                Should -Invoke Set-ItemProperty -Times 0 -ModuleName 'CIDEON.AutodeskDeployment'
+            }
+        }
+
+        It 'writes to the logged-on user hive when the SID resolves and the hive is loaded' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $odisPath = 'Registry::HKEY_USERS\S-1-5-21-1\SOFTWARE\Autodesk\ODIS'
+                Mock -CommandName Get-UserSID -MockWith { 'S-1-5-21-1' } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Test-Path -MockWith { $true } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Item -MockWith {
+                    [pscustomobject]@{ PSPath = $Path }
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-ItemProperty -MockWith {
+                    [pscustomobject]@{ DisableManualUpdateInstall = 0 }
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Set-ItemProperty -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Set-AutodeskUpdate -Disable
+
+                Should -Invoke Set-ItemProperty -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
+                    $Path -eq $odisPath -and $Value -eq 1
+                }
+            }
+        }
+
         It 'sets DisableManualUpdateInstall to 2 for ShowOnly mode' {
             InModuleScope CIDEON.AutodeskDeployment {
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
@@ -223,6 +299,24 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
 
                 $result = [xml](Get-Content $xmlPath)
                 (@($result.Bundle.Package | Where-Object { $_.name -eq "O'Reilly Package" })).Count | Should -Be 0
+            }
+        }
+
+        It 'leaves the xml file unchanged under -WhatIf' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_whatif.xml'
+                @'
+<Bundle xmlns="http://schemas.autodesk.com/whatever">
+    <Package name="RemoveMe" />
+    <Package name="KeepMe" />
+</Bundle>
+'@ | Set-Content -Path $xmlPath
+                $before = Get-Content -Path $xmlPath -Raw
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'setup_whatif.xml' -Remove 'RemoveMe' -WhatIf
+
+                Get-Content -Path $xmlPath -Raw | Should -Be $before
             }
         }
     }
@@ -268,6 +362,22 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
                 { Mount-WIM -File $fileObj -Path 'C:\fakeMount' } | Should -Throw '*ConfigFile*does not exist*'
+            }
+        }
+
+        It 'marks a mount failure as HardAbort so the ModeHandler trap does not continue' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $Global:ConfigFullFilenames = @()
+                $fileObj = [pscustomobject]@{ FullName = 'C:\fake.wim' }
+
+                Mock -CommandName Mount-WindowsImage -MockWith { throw 'mount failed' } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                $caught = $null
+                try { Mount-WIM -File $fileObj -Path 'C:\fakeMount' } catch { $caught = $_ }
+
+                $caught | Should -Not -BeNullOrEmpty
+                $caught.Exception.Data['HardAbort'] | Should -BeTrue
             }
         }
 
@@ -640,6 +750,10 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
     }
 
     Context 'Set-AutodeskUpdate (additional)' {
+        BeforeEach {
+            Mock -CommandName Get-UserSID -MockWith { $null } -ModuleName 'CIDEON.AutodeskDeployment'
+        }
+
         It 'skips registry write in WhatIf mode' {
             InModuleScope CIDEON.AutodeskDeployment {
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
@@ -981,6 +1095,31 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
 
                 $script:startProcessCall | Should -Not -BeNullOrEmpty
                 $script:startProcessCall.ArgumentList | Should -Match '/quiet'
+            }
+        }
+
+        It 'rewrites an MSI /I uninstall string to msiexec /x so it uninstalls instead of repairing' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $script:startProcessCall = $null
+
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallProgress -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-InstalledProgram -MockWith {
+                    @([pscustomobject]@{
+                            DisplayName     = 'Autodesk Vault Client 2026'
+                            Publisher       = 'Autodesk'
+                            UninstallString = 'MsiExec.exe /I{1234ABCD-0000-1111-2222-333344445555}'
+                        })
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Start-Process -MockWith {
+                    param($FilePath, $ArgumentList)
+                    $script:startProcessCall = @{ FilePath = $FilePath; ArgumentList = $ArgumentList }
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Uninstall-Program -Publisher 'Autodesk' -DisplayName 'Vault'
+
+                $script:startProcessCall.FilePath | Should -Be 'msiexec.exe'
+                $script:startProcessCall.ArgumentList | Should -Be '/x {1234ABCD-0000-1111-2222-333344445555} /quiet /passive'
             }
         }
 
