@@ -5,14 +5,45 @@ on:
     branches:
       - main
       - 'release/**'
-    paths:
-      - VERSION
+  pull_request:
+    branches:
+      - main
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run PSScriptAnalyzer
+      run: |
+        if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+        }
+
+        $results = @(Get-ChildItem -Recurse -Filter *.ps1 |
+          ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName -Settings .\.scripts\PSScriptAnalyzerSettings.psd1 })
+
+        if ($results.Count -gt 0) {
+          $results | Format-Table -AutoSize | Out-String | Write-Host
+          throw "PSScriptAnalyzer found $($results.Count) issue(s)."
+        }
+
+        Write-Host 'PSScriptAnalyzer: no issues found.'
+
+    - name: Run Pester tests
+      run: .\.scripts\Invoke-PesterTests.ps1
+
   version:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -57,7 +88,7 @@ jobs:
         Write-Host "Version: $version (tag $tagName, prerelease: $isPreRelease, release: $release)"
 
   create-release:
-    needs: version
+    needs: [test, version]
     if: needs.version.outputs.release == 'true'
     runs-on: windows-latest
     permissions:

@@ -19,10 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pester tests moved to `tests/`; `.scripts/Invoke-PesterTests.ps1` runs every `tests/*.Tests.ps1`.
 - `Install-AutodeskDeployment`: waits for the started `Installer.exe` process and logs its exit code and duration; a non-zero exit code is logged as an error instead of always reporting success.
 - `Copy-Local.ps1` is now stored as UTF-8 with BOM instead of UTF-16 LE so Git can diff it
+- `Set-AutodeskUpdate` writes the ODIS setting to the logged-on user's hive (`HKEY_USERS\<SID>`) like `Set-InventorProjectFile`, instead of `HKCU` of the elevated or SYSTEM account. Falls back to `HKCU` if the SID cannot be resolved or the hive is not loaded.
+- `Get-AppLogError` lets the event log service filter for `MsiInstaller` errors (`-FilterHashtable`) instead of loading the whole Application log
+- CI: new `test` job (PSScriptAnalyzer and Pester on `windows-latest`) for every push and pull request; the release job only runs when it passes
+- `.gitignore`: ignore `*.pem`, `.env*`, credential JSON files, `_LOG/`, `.claude/settings.local.json` and `*.code-workspace`
 ### Fixed
 - `Install-ADSK.ps1` with Autodesk ODIS 2.24+ (Autodesk 2027): `Installer.exe` refused every file inside a mounted WIM (`file missing or not a regular file`, exit code 453 after < 1 s, no deployment log), because files in a mounted WIM are reparse points (tag `0x80000008`). For these versions use a `.vhdx` image (see `New-DeploymentImage.ps1`): its files are regular files. `.wim` images remain supported for older versions.
 - `Dismount-WIM`: `-Purge` of `Install-ADSK.ps1` is now honoured when the ModeHandler calls a plain `Dismount-WIM` (the WIM was dismounted there, so the final purge in `Invoke-DeploymentWorkflow` found nothing mounted and never deleted the local WIM). Network paths and `-NoDownload` are still never purged.
 - `Install-AutodeskDeployment`: the deployment log is now named `Install-ADSK-Deployment-<WIM>.log` (typo `Deplyoment` fixed, as documented in the readme).
+- `Copy-WIM`/`Mount-WIM`: a failed WIM copy, a failed mount or a missing config file now stops the workflow (`HardAbort`). Previously the ModeHandler `trap` continued and ran installation, tools, updates and `Copy-Local` against an empty mount folder. Works for existing customised `Install-ADSK.ps1` scripts without changes.
+- `Copy-WIM` copies the WIM again when the existing local file differs from the source in size or modification time (previously any local file with the same name was reused)
+- `Uninstall-Program` uninstalls MSI products with `msiexec /x {ProductCode}`. Previously an `UninstallString` with `/I` was run as is, which starts a silent repair instead of an uninstall.
+- `Get-RealUserName` returns a single value when the user cannot be determined (previously it could return two values, which broke `Get-UserSID`)
+- `Set-AutodeskDeployment` honours `-WhatIf`/`-Confirm` for `-Remove` and saves the XML only when something was removed (previously packages were removed and saved even when the removal was declined)
+- `Install-AutodeskDeployment` quotes the deployment config path (paths with spaces failed)
+- `Set-AutodeskUpdate` throws a terminating error when none of `-Enable`/`-ShowOnly`/`-Disable` is given
 ## [2.1.1] - 2026-10-13
 ### Fixed
 - `Install-ADSK.ps1`: the untrusted-chain fallback now also accepts the signature status `UnknownError`, which Windows reports for the self-signed code-signing certificate when the root is not trusted (previously only `NotTrusted`, so module loading still failed). The thumbprint pin is still enforced; `HashMismatch` and `NotSigned` are still rejected.
