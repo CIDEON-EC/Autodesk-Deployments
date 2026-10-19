@@ -1,6 +1,6 @@
 # GitHub Workflows & Release Management
 
-Releases werden über die Datei `VERSION` im Repository-Root ausgelöst, nicht mehr durch manuelles Taggen.
+Releases werden über die Datei `VERSION` im Repository-Root ausgelöst, nicht mehr durch manuelles Taggen. Der Workflow prüft bei jedem Push auf `main` und `release/**` sowie bei jedem PR gegen `main` zuerst PSScriptAnalyzer und Pester (Job `test`); ein Release entsteht nur, wenn diese Prüfung grün ist.
 
 ## Release erstellen
 
@@ -8,7 +8,7 @@ Releases werden über die Datei `VERSION` im Repository-Root ausgelöst, nicht m
 2. In `CHANGELOG.md` den Abschnitt `[Unreleased]` in `[2.2.0] - <Datum>` umbenennen.
 3. Auf `main` committen und pushen.
 
-Der Workflow `.github/workflows/build-and-release.yml` startet bei jedem Push auf `main`, der `VERSION` ändert:
+Bei einem Push (nicht bei PRs) entscheidet der Job `version`, ob released wird:
 
 1. **Version lesen**: `VERSION` wird geprüft (SemVer). Existiert der Tag `v<VERSION>` schon, passiert nichts (z. B. bei einer reinen Korrektur der Datei).
 2. **Versionen eintragen**: `Install-ADSK.ps1` und `CIDEON.AutodeskDeployment.psm1` erhalten die Version in der Zeile `ModuleVersion:`.
@@ -20,7 +20,7 @@ Eine Version mit Suffix (`-alpha`, `-beta.1`, `-rc1`) wird automatisch als Pre-R
 
 ## Pre-Release testen, ohne nach main zu mergen
 
-Ein Push auf einen Branch `release/**` (z. B. `release/3.0.0-beta`), der `VERSION` ändert, startet denselben Workflow. Dort sind nur Pre-Release-Versionen erlaubt (z. B. `3.0.0-beta.1`), eine stabile Version wird abgelehnt. Der Tag entsteht auf dem Commit des Branches. `workflow_dispatch` wird bewusst nicht benutzt: GitHub verlangt dafür, dass der Workflow schon auf dem Default-Branch liegt.
+Ein Push auf einen Branch `release/**` (z. B. `release/3.0.0-beta`) startet denselben Workflow; ist der Tag zu `VERSION` noch nicht vorhanden, wird released. Dort sind nur Pre-Release-Versionen erlaubt (z. B. `3.0.0-beta.1`), eine stabile Version wird abgelehnt. Der Tag entsteht auf dem Commit des Branches. `workflow_dispatch` wird bewusst nicht benutzt: GitHub verlangt dafür, dass der Workflow schon auf dem Default-Branch liegt.
 
 ## Release-Assets
 
@@ -30,7 +30,7 @@ Ein Push auf einen Branch `release/**` (z. B. `release/3.0.0-beta`), der `VERSIO
 
 ## Häufige Probleme
 
-- **Workflow startet nicht**: Der Push muss `main` betreffen und `VERSION` ändern.
+- **Kein Release trotz Push**: Der Push muss `main` oder `release/**` betreffen, und der Tag `v<VERSION>` darf noch nicht existieren.
 - **Run ist grün, aber es gibt kein Release**: Der Tag `v<VERSION>` existiert schon. `VERSION` erhöhen.
 - **Ein Release ist fehlgeschlagen**: Der Tag wird erst im letzten Schritt erstellt. Den fehlgeschlagenen Run in GitHub Actions erneut starten (Re-run), es muss nichts gelöscht werden.
 - **Ein Tag wurde fälschlich erstellt**: `git push origin --delete v<VERSION>` und das GitHub-Release löschen.
