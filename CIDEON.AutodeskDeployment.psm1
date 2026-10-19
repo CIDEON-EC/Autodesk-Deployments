@@ -764,6 +764,7 @@ function Install-AutodeskDeployment {
         $installerArgs = "-i deploy --offline_mode -q -o `"$ConfigFullFilename`""
         if ($PSCmdlet.ShouldProcess($configName, "Install Autodesk Deployment with arguments: $installerArgs")) {
             Write-InstallProgress -Text "Starting Autodesk deployment: $configName"
+            Write-InstallProgress -Text "Autodesk installer log: $deploymentLogPath"
             $installerStart = Get-Date
             $installerProcess = Start-Process -FilePath $installerPath -ArgumentList $installerArgs -PassThru
             $installerProcess.WaitForExit()

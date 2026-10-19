@@ -25,7 +25,7 @@ On a push (not on pull requests), the `version` job runs these steps:
 1. **Read the version:** validates `VERSION` as SemVer. If the tag `v<VERSION>` already exists, nothing happens (e.g. after a pure correction of the file).
 2. **Write the version:** sets the version in the `ModuleVersion:` line of `Install-ADSK.ps1` and `CIDEON.AutodeskDeployment.psm1`.
 3. **Sign the module:** signs `CIDEON.AutodeskDeployment.psm1` with the GitHub secrets and verifies the signature.
-4. **Build the package:** creates `Autodesk-Deployment-<VERSION>.zip` with `Install-ADSK.ps1`, `Copy-Local.ps1`, `New-DeploymentImage.ps1`, `New-DeploymentImage.cmd`, the module, the certificate, `readme.md`, `CHANGELOG.md` and `samples/`.
+4. **Build the package:** creates `Autodesk-Deployment-<VERSION>.zip` with `Install-ADSK.ps1`, `Copy-Local.ps1`, `New-DeploymentImage.ps1`, `New-DeploymentImage.cmd`, the module, the certificate, `README.md`, `CHANGELOG.md` and `samples/`.
 5. **Create the release:** creates the tag `v<VERSION>` on the pushed commit. The release notes come from the matching `CHANGELOG.md` section (`[<VERSION>]`, otherwise `[Unreleased]`).
 
 A version with a suffix (`-alpha`, `-beta.1`, `-rc1`) is marked as a pre-release automatically.

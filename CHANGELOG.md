@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release process: a release is now triggered by changing the `VERSION` file on `main` instead of pushing a `v*` tag; the workflow creates the tag. Pre-release versions can also be released from `release/**` branches without merging to `main`. Removed the tag tasks from `.vscode/tasks.json` (see `.github/workflows/README.md`).
 - Pester tests moved to `tests/`; `.scripts/Invoke-PesterTests.ps1` runs every `tests/*.Tests.ps1`.
 - `Install-AutodeskDeployment`: waits for the started `Installer.exe` process and logs its exit code and duration; a non-zero exit code is logged as an error instead of always reporting success.
+- `Install-AutodeskDeployment`: shows the path of the Autodesk installer log in a second line below "Starting Autodesk deployment", so a long-running installation can be followed in the log.
+- The note that the certificate could not be added to the certificate stores (`Install-ADSK.ps1`, `Copy-Local.ps1`) is now a short English `Write-Host` note instead of a warning with the localized OS error text.
+- `samples/INSTALL.cmd`: builds the script path from the image path and lists the optional parameters as comments.
 - `Copy-Local.ps1` is now stored as UTF-8 with BOM instead of UTF-16 LE so Git can diff it
 - `Set-AutodeskUpdate` writes the ODIS setting to the logged-on user's hive (`HKEY_USERS\<SID>`) like `Set-InventorProjectFile`, instead of `HKCU` of the elevated or SYSTEM account. Falls back to `HKCU` if the SID cannot be resolved or the hive is not loaded.
 - `Get-AppLogError` lets the event log service filter for `MsiInstaller` errors (`-FilterHashtable`) instead of loading the whole Application log

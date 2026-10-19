@@ -370,7 +370,7 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
                 $CertStoreLocation -like 'Cert:\*'
             }
 
-            Mock -CommandName Write-Warning -MockWith {}
+            Mock -CommandName Write-Host -MockWith {}
 
             Mock -CommandName Get-AuthenticodeSignature -MockWith {
                 [PSCustomObject]@{
@@ -404,7 +404,7 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
             } -ParameterFilter { $TypeName -eq 'System.Security.Cryptography.X509Certificates.X509Certificate2' }
             Mock -CommandName Get-ChildItem -MockWith { @() } -ParameterFilter { $Path -like 'Cert:\*' }
             Mock -CommandName Import-Certificate -MockWith { throw 'Zugriff verweigert' } -ParameterFilter { $CertStoreLocation -like 'Cert:\*' }
-            Mock -CommandName Write-Warning -MockWith {}
+            Mock -CommandName Write-Host -MockWith {}
             Mock -CommandName Get-AuthenticodeSignature -MockWith {
                 [PSCustomObject]@{
                     Status            = [System.Management.Automation.SignatureStatus]::UnknownError

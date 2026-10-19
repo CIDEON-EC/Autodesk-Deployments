@@ -287,9 +287,7 @@ function Import-RemoteSignedDeploymentModule {
     }
     catch {
         # Store locked by policy/EDR: rely on the pinned thumbprint instead of chain trust
-        Write-Warning ("The CIDEON code-signing certificate could not be added to the CurrentUser TrustedPublisher store ($($_.Exception.Message)). " +
-            'The module is still verified by its signature and the pinned certificate thumbprint. ' +
-            'To avoid this warning, deploy CIDEON-CodeSigning.cer to the Trusted Publishers/Root stores.')
+        Write-Host 'Note: The CIDEON certificate was not added to the certificate stores (no permission). The module is verified by signature and pinned thumbprint instead.'
         $script:AllowUntrustedChain = $true
     }
 
