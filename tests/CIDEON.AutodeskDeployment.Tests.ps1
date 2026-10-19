@@ -560,9 +560,10 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
-        It 'Mount-DeploymentImage attaches a .vhdx without drive letter and maps its data partition to the mount path' {
+        It 'Mount-DeploymentImage attaches a .vhdx with a drive letter and points mountPath and the config paths there' {
             InModuleScope CIDEON.AutodeskDeployment {
-                $Global:ConfigFullFilenames = @()
+                $Global:mountPath = 'C:\fakeMount'
+                $Global:ConfigFullFilenames = @('C:\fakeMount\Image\Collection.xml')
                 Mock -CommandName Mount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 # Get-Disk binds Number by property name, Get-Partition takes the CIM disk by value: the mocks must be pipeline compatible
                 $script:cimDisk = New-CimInstance -ClassName MSFT_Disk -Namespace 'ROOT/Microsoft/Windows/Storage' -ClientOnly -Property @{ Number = [uint32]7 }
@@ -570,41 +571,74 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Get-Disk -MockWith { $script:cimDisk } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Dismount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Get-Partition -MockWith {
-                    [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 1; Size = 16MB }
-                    [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 2; Size = 40GB }
+                    [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 1; Size = 16MB; DriveLetter = [char]0 }
+                    [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 2; Size = 40GB; DriveLetter = 'E' }
                 } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Add-PartitionAccessPath -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Test-Path -MockWith { $true } -ModuleName 'CIDEON.AutodeskDeployment'
 
-                Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount'
+                try {
+                    # the config file does not exist on the fake drive: the error message proves the path was re-pointed to the drive letter
+                    { Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount' } |
+                        Should -Throw '*E:\Image\Collection.xml does not exist*'
 
-                Should -Invoke Mount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
-                    $ImagePath -eq 'C:\fake.vhdx' -and $NoDriveLetter -and $Access -eq 'ReadWrite'
+                    Should -Invoke Mount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
+                        $ImagePath -eq 'C:\fake.vhdx' -and -not $NoDriveLetter -and $Access -eq 'ReadWrite'
+                    }
+                    Should -Invoke Add-PartitionAccessPath -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                    Should -Invoke Mount-WindowsImage -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                    $Global:mountPath | Should -Be 'E:\'
+                    $Global:ConfigFullFilenames | Should -Be @('E:\Image\Collection.xml')
                 }
-                Should -Invoke Add-PartitionAccessPath -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
-                    $DiskNumber -eq 7 -and $PartitionNumber -eq 2 -and $AccessPath -eq 'C:\fakeMount'
+                finally {
+                    Remove-Variable -Name mountPath, ConfigFullFilenames -Scope Global -ErrorAction SilentlyContinue
                 }
-                Should -Invoke Mount-WindowsImage -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
             }
         }
 
+        It 'Mount-ImageFile assigns a drive letter when the .vhdx data partition has none' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $script:cimDisk = New-CimInstance -ClassName MSFT_Disk -Namespace 'ROOT/Microsoft/Windows/Storage' -ClientOnly -Property @{ Number = [uint32]7 }
+                $script:partitionCalls = 0
+                Mock -CommandName Get-DiskImage -MockWith { [pscustomobject]@{ ImagePath = 'C:\fake.vhdx'; Number = [uint32]7; Attached = $false } } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Disk -MockWith { $script:cimDisk } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Mount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Partition -MockWith {
+                    $script:partitionCalls++
+                    [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 2; Size = 40GB; DriveLetter = $(if ($script:partitionCalls -gt 1) { 'F' } else { [char]0 }) }
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Add-PartitionAccessPath -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Mount-ImageFile -ImagePath 'C:\fake.vhdx' | Should -Be 'F:\'
+
+                Should -Invoke Add-PartitionAccessPath -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
+                    $DiskNumber -eq 7 -and $PartitionNumber -eq 2 -and $AssignDriveLetter
+                }
+            }
+        }
         It 'Mount-DeploymentImage dismounts a .vhdx that is still attached before mounting it again' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $Global:ConfigFullFilenames = @()
                 $script:cimDisk = New-CimInstance -ClassName MSFT_Disk -Namespace 'ROOT/Microsoft/Windows/Storage' -ClientOnly -Property @{ Number = [uint32]7 }
                 Mock -CommandName Get-DiskImage -MockWith { [pscustomobject]@{ ImagePath = 'C:\fake.vhdx'; Number = [uint32]7; Attached = $true } } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Get-Disk -MockWith { $script:cimDisk } -ModuleName 'CIDEON.AutodeskDeployment'
-                Mock -CommandName Get-Partition -MockWith { [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 2; Size = 40GB } } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Partition -MockWith { [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 2; Size = 40GB; DriveLetter = 'E' } } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Dismount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Mount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Add-PartitionAccessPath -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount'
+                try {
+                    Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount'
 
-                Should -Invoke Dismount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $ImagePath -eq 'C:\fake.vhdx' }
-                Should -Invoke Mount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                    Should -Invoke Dismount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $ImagePath -eq 'C:\fake.vhdx' }
+                    Should -Invoke Mount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                }
+                finally {
+                    Remove-Variable -Name mountPath -Scope Global -ErrorAction SilentlyContinue
+                }
             }
         }
 
@@ -621,7 +655,8 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
 
                 Should -Invoke Dismount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $ImagePath -eq 'C:\fake.vhdx' }
                 Should -Invoke Dismount-WindowsImage -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
-                Should -Invoke Remove-Item -Times 2 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                # only the image file is deleted; a VHDX has no mount directory (its drive letter is gone after the dismount)
+                Should -Invoke Remove-Item -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $Path -eq 'C:\fake.vhdx' }
                 Should -Invoke Register-WIMDismountTask -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
             }
         }

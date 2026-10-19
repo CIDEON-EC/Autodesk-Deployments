@@ -148,7 +148,7 @@ The folder structure is based on the default Autodesk deployments. This could lo
 ## Create an image (.vhdx)
 Drag the deployment folder onto `New-DeploymentImage.cmd`. Tip: put a shortcut to it into `shell:sendto` (Win+R), then right-click the folder > *Send to* > *New-DeploymentImage*.
 
-The script (`New-DeploymentImage.ps1 -Source <folder> [-VhdxPath <file>] [-Force]`) creates an expandable VHDX with `diskpart` (no Hyper-V module needed), formats it with NTFS and copies the folder content into it. The VHDX is about 1.6x the size of the WIM of the same folder, because it is not compressed. Install-ADSK.ps1 attaches it with `Mount-DiskImage` into the same mount folder a WIM used.
+The script (`New-DeploymentImage.ps1 -Source <folder> [-VhdxPath <file>] [-Force]`) creates an expandable VHDX with `diskpart` (no Hyper-V module needed), formats it with NTFS and copies the folder content into it. The VHDX is about 1.6x the size of the WIM of the same folder, because it is not compressed. Install-ADSK.ps1 attaches it with `Mount-DiskImage` and uses the automatically assigned drive letter (no mount folder; a WIM still uses the mount folder).
 
 `-Image` takes the name without extension; if both `<name>.vhdx` and `<name>.wim` exist, the `.vhdx` is used. `-NoDownload` (mount from the server) only works for `.wim`, because a VHDX cannot be attached from a network share.
 
@@ -296,8 +296,8 @@ cd \\SERVER\SHARE\ScriptLocation
 | **Set-CIDEONVariable** | Sets Cideon environment variables | - | `Version` |
 | **Rename-RegistryInstallationPath** | Renames registry installation paths | - | - |
 | **Copy-DeploymentImage** | Copies the image file (.vhdx or .wim) from network share to local machine. Former name `Copy-WIM` still works | `File` | `Folder` |
-| **Mount-DeploymentImage** | Mounts the image to the specified folder (.wim with `Mount-WindowsImage`, .vhdx with `Mount-DiskImage` + folder access path); in WhatIf mode performs read-only inspection mount. Former name `Mount-WIM` still works | `File` | `Path` |
-| **Dismount-DeploymentImage** | Dismounts the image (.wim or .vhdx) and removes the mount folder. Former name `Dismount-WIM` still works | `File` | `purge`, `all` |
+| **Mount-DeploymentImage** | Mounts the image (.wim with `Mount-WindowsImage` to the specified folder, .vhdx with `Mount-DiskImage` to a drive letter; `mountPath` and the config paths are then pointed to the drive root); in WhatIf mode performs read-only inspection mount. Former name `Mount-WIM` still works | `File` | `Path` |
+| **Dismount-DeploymentImage** | Dismounts the image (.wim or .vhdx) and removes the mount folder (.wim only). Former name `Dismount-WIM` still works | `File` | `purge`, `all` |
 | **Register-WIMDismountTask** | Registers scheduled task for WIM dismount | - | - |
 | **Set-AutodeskUpdate** | Configures Autodesk update settings | One of: `Enable`, `ShowOnly`, `Disable` | - |
 | **Get-AppLogError** | Retrieves application log errors | - | - |

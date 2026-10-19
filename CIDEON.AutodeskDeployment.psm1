@@ -240,8 +240,8 @@ function Invoke-DeploymentWorkflow {
             ConfigFullFilenames = $ConfigFullFilenames
         }
 
-        # Create mount directory
-        if (-not (Test-Path $mountPath)) {
+        # Create mount directory (a .vhdx is mapped to a drive letter instead, see Mount-DeploymentImage)
+        if ([System.IO.Path]::GetExtension($imageFile.Name) -ne '.vhdx' -and -not (Test-Path $mountPath)) {
             New-Item -Path $mountPath -ItemType Directory | Out-Null
             Write-InstallLog -text "Created $mountPath" -Info
         }
@@ -1872,8 +1872,8 @@ function Mount-ImageFile {
         Mounts a .wim or .vhdx image file to a folder.
 
     .DESCRIPTION
-        A .wim is mounted with Mount-WindowsImage. A .vhdx is attached with Mount-DiskImage (without drive letter)
-        and its data partition is mapped to the folder, so that all callers can keep using the mount path.
+        A .wim is mounted with Mount-WindowsImage to the folder given in -Path. A .vhdx is attached with Mount-DiskImage
+        and its data partition gets a drive letter, so no folder is needed; -Path is ignored for a .vhdx.
         Files inside a mounted WIM are reparse points, which the Autodesk installer (ODIS 2.24+) refuses to verify;
         files inside a mounted VHDX are regular files.
 
@@ -1881,16 +1881,20 @@ function Mount-ImageFile {
         Full path of the .wim or .vhdx file.
 
     .PARAMETER Path
-        Existing empty folder to mount the image to.
+        Existing empty folder to mount a .wim to. Ignored for a .vhdx.
 
     .PARAMETER ReadOnly
         Mount the image read-only.
+
+    .OUTPUTS
+        System.String. The root path of the mounted image: -Path for a .wim, the drive root (e.g. 'E:\') for a .vhdx.
     #>
     [CmdletBinding()]
+    [OutputType([string])]
     param (
         [Parameter(Mandatory)]
         [string]$ImagePath,
-        [Parameter(Mandatory)]
+        [Parameter()]
         [string]$Path,
         [Parameter()]
         [switch]$ReadOnly
@@ -1898,7 +1902,7 @@ function Mount-ImageFile {
 
     if ([System.IO.Path]::GetExtension($ImagePath) -ne '.vhdx') {
         Mount-WindowsImage -ImagePath $ImagePath -Index 1 -Path $Path -ReadOnly:$ReadOnly -ErrorAction Stop | Out-Null
-        return
+        return $Path
     }
 
     # a VHDX left attached by an aborted run (installer still holding files) would block the copy and the mount; detach it first
@@ -1908,18 +1912,25 @@ function Mount-ImageFile {
     }
 
     $access = if ($ReadOnly) { 'ReadOnly' } else { 'ReadWrite' }
-    Mount-DiskImage -ImagePath $ImagePath -Access $access -NoDriveLetter -ErrorAction Stop | Out-Null
+    Mount-DiskImage -ImagePath $ImagePath -Access $access -ErrorAction Stop | Out-Null
     try {
         # the largest partition is the data partition (skips the reserved partition of a GPT disk)
-        $partition = Get-DiskImage -ImagePath $ImagePath | Get-Disk | Get-Partition | Sort-Object -Property Size -Descending | Select-Object -First 1
-        Add-PartitionAccessPath -DiskNumber $partition.DiskNumber -PartitionNumber $partition.PartitionNumber -AccessPath $Path -ErrorAction Stop
+        $getDataPartition = { Get-DiskImage -ImagePath $ImagePath | Get-Disk | Get-Partition | Sort-Object -Property Size -Descending | Select-Object -First 1 }
+        $partition = & $getDataPartition
+        if (-not $partition.DriveLetter) {
+            Add-PartitionAccessPath -DiskNumber $partition.DiskNumber -PartitionNumber $partition.PartitionNumber -AssignDriveLetter -ErrorAction Stop
+            $partition = & $getDataPartition
+        }
+        if (-not $partition.DriveLetter) {
+            throw "No drive letter could be assigned to the data partition of $ImagePath"
+        }
+        return "$($partition.DriveLetter):\"
     }
     catch {
         Dismount-DiskImage -ImagePath $ImagePath | Out-Null
         throw
     }
-}
-function Copy-DeploymentImage {
+}function Copy-DeploymentImage {
     <#
     .SYNOPSIS
         Copies the deployment image (.wim or .vhdx) from the network share to the local machine.
@@ -2101,8 +2112,10 @@ function Mount-DeploymentImage {
             $tempMount = [System.IO.Path]::Combine($env:TEMP, "Image_Inspect_$(Get-Random)")
             $mounted = $false
             try {
-                New-Item -Path $tempMount -ItemType Directory -Force -WhatIf:$false | Out-Null
-                Mount-ImageFile -ImagePath $File.FullName -Path $tempMount -ReadOnly
+                if ($File.FullName -notlike '*.vhdx') {
+                    New-Item -Path $tempMount -ItemType Directory -Force -WhatIf:$false | Out-Null
+                }
+                $tempMount = Mount-ImageFile -ImagePath $File.FullName -Path $tempMount -ReadOnly
                 $mounted = $true
                 Write-InstallLog -text 'Image mounted read-only for inspection' -Info
                 Update-WIMInspectionCache -MountedPath $tempMount
@@ -2124,7 +2137,16 @@ function Mount-DeploymentImage {
         try {
             # Normal mode: mount image
             if ($PSCmdlet.ShouldProcess($File.FullName, "Mount image to $Path")) {
-                Mount-ImageFile -ImagePath $File.FullName -Path $Path
+                $mountedPath = Mount-ImageFile -ImagePath $File.FullName -Path $Path
+                if ($mountedPath -ne $Path) {
+                    # a .vhdx is mounted to a drive letter: point the context (and the config file paths below it) there
+                    $oldRoot = $Path.TrimEnd('\')
+                    $newRoot = $mountedPath.TrimEnd('\')
+                    $mappedConfigs = @($ConfigFullFilenames | ForEach-Object { if ($_.StartsWith($oldRoot, [System.StringComparison]::OrdinalIgnoreCase)) { $newRoot + $_.Substring($oldRoot.Length) } else { $_ } })
+                    Set-InstallContext -Context @{ mountPath = $mountedPath; ConfigFullFilenames = $mappedConfigs }
+                    $Path = $mountedPath
+                    $ConfigFullFilenames = $mappedConfigs
+                }
                 Write-InstallLog -text "Image $($File.FullName) mounted to $Path" -Info
             }
 
@@ -2291,7 +2313,7 @@ function Dismount-DeploymentImage {
                             Write-InstallLog -text "Image $($image.ImagePath) locally deleted" -Info
                         }
                     }
-                    if ($PSCmdlet.ShouldProcess($image.Path, 'Delete mount directory')) {
+                    if (-not $isVhdx -and $PSCmdlet.ShouldProcess($image.Path, 'Delete mount directory')) {
                         Remove-Item -Path $image.Path -Force -Recurse
                     }
                 }
