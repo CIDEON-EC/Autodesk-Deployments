@@ -166,12 +166,12 @@ All helper functions are documented in `CIDEON.AutodeskDeployment.psm1`.
 - Public certificate: `CIDEON-CodeSigning.cer`
 - Certificate guide: `Certificate.md`
 
-The installer loads the module from GitHub Release assets, validates the downloaded certificate against a pinned thumbprint allowlist, validates the module signature against that same signer allowlist, and falls back to the local module in the script directory if remote loading fails.
+The installer (and `Copy-Local.ps1`) loads the module from GitHub Release assets, validates the downloaded certificate against a pinned thumbprint allowlist, validates the module signature against that same signer allowlist, and falls back to the local module in the script directory if remote loading fails.
 
 Current pinned code-signing thumbprint:
 - `53D03841EC43C1C545F56919F9A6AEF0C7D2E783`
 
-If the code-signing certificate is rotated, update the pinned thumbprint allowlist in `Install-ADSK.ps1` before trusting the new release certificate.
+If the code-signing certificate is rotated, update the pinned thumbprint allowlist (`$TrustedCertificateThumbprints`) in both `Install-ADSK.ps1` and `Copy-Local.ps1` before trusting the new release certificate.
 
 The installer resolves the module and certificate from GitHub Release assets:
 - default: latest release
