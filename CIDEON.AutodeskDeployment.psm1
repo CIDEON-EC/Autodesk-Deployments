@@ -1901,6 +1901,12 @@ function Mount-ImageFile {
         return
     }
 
+    # a VHDX left attached by an aborted run (installer still holding files) would block the copy and the mount; detach it first
+    if ((Get-DiskImage -ImagePath $ImagePath).Attached) {
+        Write-InstallLog -text "Image $ImagePath is still attached from an earlier run, dismounting it first" -Info
+        Dismount-DiskImage -ImagePath $ImagePath -ErrorAction Stop | Out-Null
+    }
+
     $access = if ($ReadOnly) { 'ReadOnly' } else { 'ReadWrite' }
     Mount-DiskImage -ImagePath $ImagePath -Access $access -NoDriveLetter -ErrorAction Stop | Out-Null
     try {
