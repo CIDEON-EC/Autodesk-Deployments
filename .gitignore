@@ -50,3 +50,18 @@ TODO.md
 *.pfx
 *.p12
 *.key
+*.pem
+
+# environment / credential files
+.env
+.env.*
+*credentials*.json
+
+# machine-local Claude Code settings
+.claude/settings.local.json
+
+# deployment log folders (contain computer names)
+_LOG/
+
+# local editor workspace files
+*.code-workspace
