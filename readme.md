@@ -152,6 +152,22 @@ The script (`New-DeploymentImage.ps1 -Source <folder> [-VhdxPath <file>] [-Force
 
 `-Image` takes the name without extension; if both `<name>.vhdx` and `<name>.wim` exist, the `.vhdx` is used. `-NoDownload` (mount from the server) only works for `.wim`, because a VHDX cannot be attached from a network share.
 
+### How the image is mounted
+
+| | `.vhdx` | `.wim` |
+| --- | --- | --- |
+| Local copy | `<LocalFolder>\<Image>.vhdx` (`C:\Temp` by default). Reused if size and modification time match the source | same, `<LocalFolder>\<Image>.wim` |
+| Mount | Attached with `Mount-DiskImage`; the data partition gets an automatically assigned **drive letter** (e.g. `E:\`) | Mounted with `Mount-WindowsImage` into the folder `<LocalFolder>\mount_<Image>` |
+| Mount folder / link in `C:\Temp` | **None.** Nothing but the `.vhdx` file itself is created there | `mount_<Image>` is created and deleted again |
+| Paths during installation | `mountPath` and the config file paths (e.g. `E:\Image\Collection.xml`) are set to the drive root right after mounting | `<LocalFolder>\mount_<Image>\Image\Collection.xml` |
+| Dismount | `Dismount-DiskImage`; the drive letter disappears. With `-Purge` the local `.vhdx` is deleted | `Dismount-WindowsImage -Discard`, the mount folder is deleted. With `-Purge` the local `.wim` is deleted |
+| After an aborted run | A `.vhdx` that is still attached is dismounted before the next mount. An attachment does not survive a reboot, so no cleanup task is registered | The scheduled task `CleanupWIM` removes the stale mount point after a reboot |
+
+Notes:
+- While a `.vhdx` is mounted, an additional drive appears in Explorer. The letter is assigned automatically, so it does not collide with existing drives.
+- The log shows the path of the local image file; the paths handed to `Installer.exe` are on the drive letter.
+- The VHDX is mounted read-write. Changes the installer makes in the image (e.g. the rewritten `Collection.xml`) stay in the local copy.
+
 ## Change the Install-ADSK.ps1 for your needs
 The script has two sections:
 1. **Module Loader** — Loads `CIDEON.AutodeskDeployment.psm1` from GitHub and validates the Authenticode signature.
@@ -220,7 +236,7 @@ You can find this in the file itself, but here is an overview.
 | **Image** | String | ✅ | - | Name of the image file without extension (`.vhdx` is used if it exists, otherwise `.wim`). Former name: `-WIM` (still works as alias) |
 | **Mode** | String | ✅ | - | Mode to execute: `Install`, `Uninstall`, `Update` |
 | **Path** | String | ❌ | Script location | Path to the image file. Not needed if the image is in same folder as script |
-| **LocalFolder** | String | ❌ | `C:\Temp` | Local folder where the image file should be downloaded and mapped |
+| **LocalFolder** | String | ❌ | `C:\Temp` | Local folder where the image file is copied to. A `.wim` is additionally mounted into `mount_<Image>` there, a `.vhdx` uses a drive letter instead (see "How the image is mounted") |
 | **Files** | String Array | ❌ | `@("Collection")` | XML filenames WITHOUT extension for installation. Before each install, `LoggingSettings` in the selected XML is enforced to `Logging=true` and `Path=<LocalFolder>\\Install-ADSK-Deployment-<Image>.log` |
 | **Version** | String | ❌ | Auto-extracted | Software version for Cideon tools and logging |
 | **ModuleVersionPin** | String | ❌ | Latest Release | Pins online module/certificate download to a specific release version (e.g. `1.2.0`) |
