@@ -1,5 +1,10 @@
 $WhatIfPreference = $false
 
+BeforeDiscovery {
+    # GitHub-hosted runners are elevated, so tests of the non-admin branch cannot run there
+    $isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 BeforeAll {
     $modulePath = Join-Path -Path $PSScriptRoot -ChildPath 'CIDEON.AutodeskDeployment.psm1'
     Import-Module -Name $modulePath -Force
@@ -322,7 +327,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
     }
 
     Context 'Mount-WIM' {
-        It 'logs info and returns early in WhatIf mode when not running as admin' {
+        It 'logs info and returns early in WhatIf mode when not running as admin' -Skip:$isElevated {
             InModuleScope CIDEON.AutodeskDeployment {
                 Mock -CommandName Write-InstallLog -MockWith {}
                 $originalWhatIf = $WhatIfPreference
