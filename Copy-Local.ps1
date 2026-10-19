@@ -74,6 +74,117 @@ $ModuleCacheFolder = Join-Path -Path $env:ProgramData -ChildPath 'CIDEON/Autodes
 $ModuleLocalPath = Join-Path -Path $ModuleCacheFolder -ChildPath $ModuleFileName
 $CertificateLocalPath = Join-Path -Path $ModuleCacheFolder -ChildPath $CertificateFileName
 $SelectedModuleVersionPin = $ModuleVersionPin
+# Keep in sync with the allowlist in Install-ADSK.ps1
+$TrustedCertificateThumbprints = @(
+    '53D03841EC43C1C545F56919F9A6AEF0C7D2E783'
+)
+
+function Get-NormalizedThumbprint {
+    <#
+    .SYNOPSIS
+        Normalizes a certificate thumbprint for allowlist comparisons.
+
+    .PARAMETER Thumbprint
+        The thumbprint to normalize.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        $Thumbprint
+    )
+
+    $thumbprintText = [string]$Thumbprint
+    if ([string]::IsNullOrWhiteSpace($thumbprintText)) {
+        throw 'Thumbprint must not be empty.'
+    }
+
+    return ($thumbprintText -replace '\s', '').ToUpperInvariant()
+}
+
+function Assert-TrustedCertificateThumbprint {
+    <#
+    .SYNOPSIS
+        Verifies that a certificate file matches the pinned release certificate allowlist.
+
+    .PARAMETER CertificatePath
+        Full path to the certificate file that should be validated.
+
+    .PARAMETER TrustedThumbprint
+        One or more allowed certificate thumbprints.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$CertificatePath,
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$TrustedThumbprint
+    )
+
+    $certificate = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CertificatePath)
+    $normalizedThumbprint = Get-NormalizedThumbprint -Thumbprint $certificate.Thumbprint
+    $allowedThumbprints = @($TrustedThumbprint | ForEach-Object {
+            Get-NormalizedThumbprint -Thumbprint $_
+        })
+
+    if ($normalizedThumbprint -notin $allowedThumbprints) {
+        throw "Downloaded certificate thumbprint '$normalizedThumbprint' is not trusted. Update the allowlist in Install-ADSK.ps1 and Copy-Local.ps1 before trusting a new signing certificate."
+    }
+
+    return $certificate
+}
+
+function Assert-TrustedModuleSignature {
+    <#
+    .SYNOPSIS
+        Verifies a module Authenticode signature against the pinned signer allowlist.
+
+    .PARAMETER Signature
+        Result object from Get-AuthenticodeSignature.
+
+    .PARAMETER TrustedThumbprint
+        One or more allowed signer thumbprints.
+
+    .PARAMETER AllowUntrustedChain
+        Also accepts the status NotTrusted or UnknownError (intact signature, certificate chain without a
+        trusted root). Used when the certificate store is not writable; the thumbprint
+        pin is still enforced.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        $Signature,
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$TrustedThumbprint,
+        [switch]$AllowUntrustedChain
+    )
+
+    $acceptedStatus = @([System.Management.Automation.SignatureStatus]::Valid)
+    if ($AllowUntrustedChain) {
+        # NotTrusted/UnknownError = file hash is intact but the (self-signed) chain has no trusted root; the thumbprint pin below still applies
+        $acceptedStatus += [System.Management.Automation.SignatureStatus]::NotTrusted
+        $acceptedStatus += [System.Management.Automation.SignatureStatus]::UnknownError
+    }
+
+    if ($Signature.Status -notin $acceptedStatus) {
+        throw "Module signature is invalid. Status: $($Signature.Status) - $($Signature.StatusMessage)"
+    }
+
+    if (-not $Signature.SignerCertificate -or [string]::IsNullOrWhiteSpace($Signature.SignerCertificate.Thumbprint)) {
+        throw 'Module signature does not expose a signer certificate thumbprint.'
+    }
+
+    $normalizedThumbprint = Get-NormalizedThumbprint -Thumbprint $Signature.SignerCertificate.Thumbprint
+    $allowedThumbprints = @($TrustedThumbprint | ForEach-Object {
+            Get-NormalizedThumbprint -Thumbprint $_
+        })
+
+    if ($normalizedThumbprint -notin $allowedThumbprints) {
+        throw "Module signer thumbprint '$normalizedThumbprint' is not trusted."
+    }
+}
 
 function Get-ReleaseAssetDownloadUri {
     <#
@@ -170,30 +281,45 @@ function Import-RemoteSignedDeploymentModule {
     $certificateRemoteUri = Get-ReleaseAssetDownloadUri -AssetName $CertificateFileName -ReleaseVersion $SelectedModuleVersionPin
 
     Save-RemoteFile -Uri $certificateRemoteUri -DestinationPath $CertificateLocalPath
-    Add-CertificateToStoreIfMissing -CertificatePath $CertificateLocalPath
+    Assert-TrustedCertificateThumbprint -CertificatePath $CertificateLocalPath -TrustedThumbprint $TrustedCertificateThumbprints | Out-Null
+    try {
+        Add-CertificateToStoreIfMissing -CertificatePath $CertificateLocalPath
+    }
+    catch {
+        # Store locked by policy/EDR: rely on the pinned thumbprint instead of chain trust
+        Write-Warning ("The CIDEON code-signing certificate could not be added to the CurrentUser TrustedPublisher store ($($_.Exception.Message)). " +
+            'The module is still verified by its signature and the pinned certificate thumbprint. ' +
+            'To avoid this warning, deploy CIDEON-CodeSigning.cer to the Trusted Publishers/Root stores.')
+        $script:AllowUntrustedChain = $true
+    }
 
     Save-RemoteFile -Uri $moduleRemoteUri -DestinationPath $ModuleLocalPath
 
     $signature = Get-AuthenticodeSignature -FilePath $ModuleLocalPath
-    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw "Module signature is invalid. Status: $($signature.Status)"
-    }
+    Assert-TrustedModuleSignature -Signature $signature -TrustedThumbprint $TrustedCertificateThumbprints -AllowUntrustedChain:$script:AllowUntrustedChain
 
     Import-Module -Name $ModuleLocalPath -Force -ErrorAction Stop
 }
+
+$script:AllowUntrustedChain = $false
 
 try {
     Import-RemoteSignedDeploymentModule
 }
 catch {
+    $remoteError = $_.Exception.Message
+
     $fallbackLocalModule = Join-Path -Path $PSScriptRoot -ChildPath $ModuleFileName
     if (-not (Test-Path -Path $fallbackLocalModule)) {
-        throw "Failed to load module from remote and no local fallback found. $($_.Exception.Message)"
+        throw "Remote module loading failed: $remoteError - no local fallback found at '$fallbackLocalModule'."
     }
 
     $fallbackSignature = Get-AuthenticodeSignature -FilePath $fallbackLocalModule
-    if ($fallbackSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw "Fallback module signature is invalid. Status: $($fallbackSignature.Status)"
+    try {
+        Assert-TrustedModuleSignature -Signature $fallbackSignature -TrustedThumbprint $TrustedCertificateThumbprints -AllowUntrustedChain:$script:AllowUntrustedChain
+    }
+    catch {
+        throw "Remote module loading failed: $remoteError - fallback module at '$fallbackLocalModule' is also unusable ($($_.Exception.Message))."
     }
 
     Import-Module -Name $fallbackLocalModule -Force -ErrorAction Stop

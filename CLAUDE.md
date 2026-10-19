@@ -56,6 +56,7 @@ If the code-signing certificate is rotated, update the pinned thumbprint allowli
 
 ### Test files
 - `Install-ADSK.Tests.ps1` — tests the loader security (signature validation, fallback, missing assets) and mode dispatch
+- `Copy-Local.Tests.ps1` — tests the `Copy-Local.ps1` loader security (thumbprint pinning, store fallback, local fallback)
 - `CIDEON.AutodeskDeployment.Tests.ps1` — tests module functions; see `TEST-MATRIX.md` for coverage status
 
 ## PowerShell Conventions

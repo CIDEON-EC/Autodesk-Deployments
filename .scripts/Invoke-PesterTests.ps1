@@ -45,6 +45,7 @@ if (-not $repositoryRoot) {
 
 $testFiles = @(
     Join-Path -Path $repositoryRoot -ChildPath 'Install-ADSK.Tests.ps1'
+    Join-Path -Path $repositoryRoot -ChildPath 'Copy-Local.Tests.ps1'
     Join-Path -Path $repositoryRoot -ChildPath 'CIDEON.AutodeskDeployment.Tests.ps1'
 ) | Where-Object { Test-Path -LiteralPath $_ }
 
