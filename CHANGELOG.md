@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING (compatible via aliases)**: parameter `-WIM` of `Install-ADSK.ps1` is now `-Image` (`-WIM` still works as alias, also with an extension); `Copy-WIM`, `Mount-WIM`, `Dismount-WIM` are now `Copy-DeploymentImage`, `Mount-DeploymentImage`, `Dismount-DeploymentImage` (old names are exported aliases); the install context variables `$WIM` and `$wimFile` are now `$Image` and `$imageFile`. `Register-WIMDismountTask` and `Update-WIMInspectionCache` keep their names.
 - `-NoDownload` is not supported for `.vhdx` images (a VHDX cannot be attached from a network share); `Copy-DeploymentImage` throws a clear error.
 - A VHDX is mounted read-write, so changes the installer makes in the image (e.g. the rewritten `Collection.xml`) persist in the local copy.
-- Release process: a release is now triggered by changing the `VERSION` file on `main` instead of pushing a `v*` tag; the workflow creates the tag. Removed the tag tasks from `.vscode/tasks.json` (see `.github/workflows/README.md`).
+- Release process: a release is now triggered by changing the `VERSION` file on `main` instead of pushing a `v*` tag; the workflow creates the tag. Pre-release versions can also be released from `release/**` branches without merging to `main`. Removed the tag tasks from `.vscode/tasks.json` (see `.github/workflows/README.md`).
 - Pester tests moved to `tests/`; `.scripts/Invoke-PesterTests.ps1` runs every `tests/*.Tests.ps1`.
 - `Install-AutodeskDeployment`: waits for the started `Installer.exe` process and logs its exit code and duration; a non-zero exit code is logged as an error instead of always reporting success.
 ### Fixed

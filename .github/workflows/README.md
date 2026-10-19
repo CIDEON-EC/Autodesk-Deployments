@@ -18,6 +18,10 @@ Der Workflow `.github/workflows/build-and-release.yml` startet bei jedem Push au
 
 Eine Version mit Suffix (`-alpha`, `-beta.1`, `-rc1`) wird automatisch als Pre-Release markiert.
 
+## Pre-Release testen, ohne nach main zu mergen
+
+Ein Push auf einen Branch `release/**` (z. B. `release/3.0.0-beta`), der `VERSION` ändert, startet denselben Workflow. Dort sind nur Pre-Release-Versionen erlaubt (z. B. `3.0.0-beta.1`), eine stabile Version wird abgelehnt. Der Tag entsteht auf dem Commit des Branches. `workflow_dispatch` wird bewusst nicht benutzt: GitHub verlangt dafür, dass der Workflow schon auf dem Default-Branch liegt.
+
 ## Release-Assets
 
 - `Autodesk-Deployment-<VERSION>.zip` (komplettes Paket)

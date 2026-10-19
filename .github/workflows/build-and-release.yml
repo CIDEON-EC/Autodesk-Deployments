@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - 'release/**'
     paths:
       - VERSION
 
@@ -37,6 +38,10 @@ jobs:
         $tagName = "v$version"
         $isPreRelease = if ($version -match '^[0-9]+\.[0-9]+\.[0-9]+$') { 'false' } else { 'true' }
 
+        # Only main may publish a stable release; release/** branches are for pre-release test builds.
+        if ($env:GITHUB_REF -ne 'refs/heads/main' -and $isPreRelease -eq 'false') {
+          throw "Stable version $version can only be released from main (this run: $env:GITHUB_REF). Use a pre-release version such as $version-beta.1 on release/** branches."
+        }
         # A push that touches VERSION without bumping it (e.g. a typo fix) must not release again.
         $existingTag = git ls-remote --tags origin "refs/tags/$tagName"
         $release = if ($existingTag) { 'false' } else { 'true' }
