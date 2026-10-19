@@ -1,36 +1,52 @@
-# GitHub Workflows & Release Management
+# GitHub Workflows and Release Management
 
-Releases werden über die Datei `VERSION` im Repository-Root ausgelöst, nicht mehr durch manuelles Taggen. Der Workflow prüft bei jedem Push auf `main` und `release/**` sowie bei jedem PR gegen `main` zuerst PSScriptAnalyzer und Pester (Job `test`); ein Release entsteht nur, wenn diese Prüfung grün ist.
+[![Build and Release](https://github.com/CIDEON-EC/Autodesk-Deployments/actions/workflows/build-and-release.yml/badge.svg)](https://github.com/CIDEON-EC/Autodesk-Deployments/actions/workflows/build-and-release.yml)
 
-## Release erstellen
+The `Build and Release` workflow (`build-and-release.yml`) tests every change and publishes a release when the `VERSION` file in the repository root changes. Releases are no longer created by tagging manually.
 
-1. `VERSION` auf die neue Version setzen (SemVer, ohne `v`), z. B. `2.2.0` oder `2.2.0-beta.1`.
-2. In `CHANGELOG.md` den Abschnitt `[Unreleased]` in `[2.2.0] - <Datum>` umbenennen.
-3. Auf `main` committen und pushen.
+## Overview
 
-Bei einem Push (nicht bei PRs) entscheidet der Job `version`, ob released wird:
+| Trigger | `test` job | `version` job (release) |
+|---------|-----------|-------------------------|
+| Push to `main` | Runs | Runs; releases if the tag `v<VERSION>` does not exist yet |
+| Push to `release/**` | Runs | Runs; pre-release versions only |
+| Pull request against `main` | Runs | Does not run |
 
-1. **Version lesen**: `VERSION` wird geprüft (SemVer). Existiert der Tag `v<VERSION>` schon, passiert nichts (z. B. bei einer reinen Korrektur der Datei).
-2. **Versionen eintragen**: `Install-ADSK.ps1` und `CIDEON.AutodeskDeployment.psm1` erhalten die Version in der Zeile `ModuleVersion:`.
-3. **Modul signieren**: `CIDEON.AutodeskDeployment.psm1` wird mit den GitHub Secrets signiert und geprüft.
-4. **Paket bauen**: `Autodesk-Deployment-<VERSION>.zip` mit `Install-ADSK.ps1`, `Copy-Local.ps1`, `New-DeploymentImage.ps1`, `New-DeploymentImage.cmd`, Modul, Zertifikat, `readme.md`, `CHANGELOG.md` und `samples/`.
-5. **Release anlegen**: Der Tag `v<VERSION>` wird auf dem gepushten Commit erstellt, der Release-Text kommt aus dem passenden `CHANGELOG.md`-Abschnitt (`[<VERSION>]`, sonst `[Unreleased]`).
+The `test` job runs PSScriptAnalyzer and Pester. A release is only created if it passes.
 
-Eine Version mit Suffix (`-alpha`, `-beta.1`, `-rc1`) wird automatisch als Pre-Release markiert.
+## Create a release
 
-## Pre-Release testen, ohne nach main zu mergen
+1. Set `VERSION` to the new version (SemVer, without `v`), e.g. `2.2.0` or `2.2.0-beta.1`.
+2. In `CHANGELOG.md`, rename the `[Unreleased]` section to `[2.2.0] - <date>`.
+3. Commit and push to `main`.
 
-Ein Push auf einen Branch `release/**` (z. B. `release/3.0.0-beta`) startet denselben Workflow; ist der Tag zu `VERSION` noch nicht vorhanden, wird released. Dort sind nur Pre-Release-Versionen erlaubt (z. B. `3.0.0-beta.1`), eine stabile Version wird abgelehnt. Der Tag entsteht auf dem Commit des Branches. `workflow_dispatch` wird bewusst nicht benutzt: GitHub verlangt dafür, dass der Workflow schon auf dem Default-Branch liegt.
+On a push (not on pull requests), the `version` job runs these steps:
 
-## Release-Assets
+1. **Read the version:** validates `VERSION` as SemVer. If the tag `v<VERSION>` already exists, nothing happens (e.g. after a pure correction of the file).
+2. **Write the version:** sets the version in the `ModuleVersion:` line of `Install-ADSK.ps1` and `CIDEON.AutodeskDeployment.psm1`.
+3. **Sign the module:** signs `CIDEON.AutodeskDeployment.psm1` with the GitHub secrets and verifies the signature.
+4. **Build the package:** creates `Autodesk-Deployment-<VERSION>.zip` with `Install-ADSK.ps1`, `Copy-Local.ps1`, `New-DeploymentImage.ps1`, `New-DeploymentImage.cmd`, the module, the certificate, `readme.md`, `CHANGELOG.md` and `samples/`.
+5. **Create the release:** creates the tag `v<VERSION>` on the pushed commit. The release notes come from the matching `CHANGELOG.md` section (`[<VERSION>]`, otherwise `[Unreleased]`).
 
-- `Autodesk-Deployment-<VERSION>.zip` (komplettes Paket)
+A version with a suffix (`-alpha`, `-beta.1`, `-rc1`) is marked as a pre-release automatically.
+
+## Test a pre-release without merging to main
+
+A push to a `release/**` branch (e.g. `release/3.0.0-beta`) starts the same workflow. If the tag for `VERSION` does not exist yet, it creates the release.
+
+- Only pre-release versions are allowed there (e.g. `3.0.0-beta.1`). A stable version is rejected.
+- The tag is created on the branch commit.
+- `workflow_dispatch` is deliberately not used: GitHub requires the workflow to exist on the default branch for it.
+
+## Release assets
+
+- `Autodesk-Deployment-<VERSION>.zip` (complete package)
 - `Install-ADSK.ps1`, `New-DeploymentImage.ps1`, `New-DeploymentImage.cmd`
-- `CIDEON.AutodeskDeployment.psm1` (signiert), `CIDEON-CodeSigning.cer`
+- `CIDEON.AutodeskDeployment.psm1` (signed), `CIDEON-CodeSigning.cer`
 
-## Häufige Probleme
+## Troubleshooting
 
-- **Kein Release trotz Push**: Der Push muss `main` oder `release/**` betreffen, und der Tag `v<VERSION>` darf noch nicht existieren.
-- **Run ist grün, aber es gibt kein Release**: Der Tag `v<VERSION>` existiert schon. `VERSION` erhöhen.
-- **Ein Release ist fehlgeschlagen**: Der Tag wird erst im letzten Schritt erstellt. Den fehlgeschlagenen Run in GitHub Actions erneut starten (Re-run), es muss nichts gelöscht werden.
-- **Ein Tag wurde fälschlich erstellt**: `git push origin --delete v<VERSION>` und das GitHub-Release löschen.
+- **No release despite a push:** the push must target `main` or `release/**`, and the tag `v<VERSION>` must not exist yet.
+- **The run is green but there is no release:** the tag `v<VERSION>` already exists. Increase `VERSION`.
+- **A release failed:** the tag is only created in the last step. Re-run the failed run in GitHub Actions; nothing needs to be deleted.
+- **A tag was created by mistake:** run `git push origin --delete v<VERSION>` and delete the GitHub release.
