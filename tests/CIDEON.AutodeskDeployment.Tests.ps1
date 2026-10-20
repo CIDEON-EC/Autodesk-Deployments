@@ -307,23 +307,35 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
-        It 'removes an Application entry from a setup.xml without namespace' {
+        It 'removes an Application entry from setup.xml by default (namespaced, setup_ext.xml absent)' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup.xml'
                 @'
-<Setup>
+<Bundle xmlns="https://emsfs.autodesk.com/schema/manifest/1/0">
     <Applications>
-        <Application name="Vault Professional 2026 (Client)" />
-        <Application name="Vault Data Standard 2026" />
+        <Application sequence="1" name="Vault Professional 2026 (Client)" />
+        <Application sequence="2" name="Vault Data Standard 2026" />
     </Applications>
-</Setup>
+</Bundle>
 '@ | Set-Content -Path $xmlPath
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'setup.xml' -Remove 'Vault Data Standard'
+                Set-AutodeskDeployment -Path $TestDrive -Remove 'Vault Data Standard'
 
-                $names = @(([xml](Get-Content $xmlPath)).Setup.Applications.Application.name)
+                $names = @(([xml](Get-Content $xmlPath)).Bundle.Applications.Application.name)
                 $names | Should -Be @('Vault Professional 2026 (Client)')
+            }
+        }
+
+        It 'logs when a -Remove pattern matches nothing' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_nomatch.xml'
+                '<Bundle><Applications><Application name="Keep" /></Applications></Bundle>' | Set-Content -Path $xmlPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'setup_nomatch.xml' -Remove 'Nope'
+
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like "No entry matching 'Nope'*" }
             }
         }
 
@@ -746,6 +758,9 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Get-Content -MockWith { [xml]'<Collection/>' } -ModuleName 'CIDEON.AutodeskDeployment'
 
                 { Install-AutodeskDeployment -Path 'C:\\noimage' -WhatIf:$false } | Should -Not -Throw
+
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like 'No Autodesk deployment was installed*' -and $Fail.IsPresent }
+                Should -Invoke Write-InstallLog -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -eq 'Autodesk Products installed' }
             }
         }
 

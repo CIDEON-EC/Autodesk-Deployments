@@ -708,6 +708,7 @@ function Install-AutodeskDeployment {
     }
 
     # call install autodesk deployment
+    $foundConfigs = 0
     foreach ($ConfigFullFilename in $configFiles) {
         Write-InstallLog -text "Started Installation of ConfigFile: $ConfigFullFilename" -Info
         $configName = Split-Path $ConfigFullFilename -Leaf
@@ -717,6 +718,7 @@ function Install-AutodeskDeployment {
             Write-InstallLog -text "Config file not found: $ConfigFullFilename" -Fail
             continue
         }
+        $foundConfigs++
 
         # enfore logging settings for deployment installere
         try {
@@ -780,7 +782,12 @@ function Install-AutodeskDeployment {
         }
     }
 
-    Write-InstallLog -text 'Autodesk Products installed' -Info
+    if ($foundConfigs -eq 0) {
+        Write-InstallLog -text 'No Autodesk deployment was installed: no config file found (check -Files)' -Fail
+    }
+    else {
+        Write-InstallLog -text 'Autodesk Products installed' -Info
+    }
 }
 function Uninstall-AutodeskDeployment {
 
@@ -872,20 +879,21 @@ function Set-AutodeskDeployment {
 
     .DESCRIPTION
         Processes deployment product XML files and optionally removes language packs or specific packages.
-        With -xmlFileName 'setup.xml' -Remove also removes <Application> entries, e.g. to install Vault
+        -Remove also removes <Application> entries of setup.xml, e.g. to install Vault
         without Vault Data Standard.
 
     .PARAMETER Path
         Path to the Autodesk deployment image folder.
     .PARAMETER xmlFileName
-        XML file name to modify, default is "setup_ext.xml".
+        XML file names to modify in every product folder, default is "setup_ext.xml" and "setup.xml".
+        A file that does not exist in a product folder is skipped.
     .PARAMETER Language
         One or more language pack names to keep.
     .PARAMETER Remove
         One or more package (setup_ext.xml) or application (setup.xml) name patterns to remove.
 
     .EXAMPLE
-        Set-AutodeskDeployment -xmlFileName 'setup.xml' -Remove 'Vault Data Standard'
+        Set-AutodeskDeployment -Remove 'Vault Data Standard'
 
     .NOTES
         Autor: Timon Först
@@ -894,8 +902,8 @@ function Set-AutodeskDeployment {
     param (
         [Parameter(Mandatory = $false, HelpMessage = 'Path to the Autodesk Deployment')]
         [string]$Path = [System.IO.Path]::Combine($mountPath, 'image'),
-        [Parameter(Mandatory = $false, HelpMessage = 'XML file to change. Default is "setup_ext.xml"')]
-        [string]$xmlFileName = 'setup_ext.xml',
+        [Parameter(Mandatory = $false, HelpMessage = 'XML files to change in each product folder. Default is "setup_ext.xml" and "setup.xml"')]
+        [string[]]$xmlFileName = @('setup_ext.xml', 'setup.xml'),
         [Parameter(Mandatory = $false, HelpMessage = 'One or More Language Packs to keep. Name must be in English (e.g. German, Polish). It has to be available in the deployment. Default is "German"')]
         [string[]]$Language,
         [Parameter(Mandatory = $false, HelpMessage = 'Remove a specified update')]
@@ -931,10 +939,18 @@ function Set-AutodeskDeployment {
         Write-InstallLog -text "Autodesk Products found: $($adskProducts.Name -join ', ')" -Info
     }
 
-    foreach ($adskProduct in $adskProducts) {
+    $removeMatched = @{}
+    $xmlPaths = @($adskProducts | ForEach-Object {
+            $productPath = $_.FullName
+            $xmlFileName | ForEach-Object { [System.IO.Path]::Combine($productPath, $_) }
+        })
+    foreach ($xmlPath in $xmlPaths) {
 
         # get xml file
-        $xmlPath = [System.IO.Path]::Combine($adskProduct.FullName, $xmlFileName)
+        if (-not (Test-Path -Path $xmlPath -PathType Leaf)) {
+            Write-InstallLog -text "Skipped $xmlPath (not found)" -Info
+            continue
+        }
         [xml]$xml = Get-Content $xmlPath
 
         Write-InstallLog -text "Change $xmlPath file" -Info
@@ -988,6 +1004,7 @@ function Set-AutodeskDeployment {
                     $packageName -like "*$name*"
                 }
                 foreach ($package in $packages) {
+                    $removeMatched[$name] = $true
                     $packageName = $package.GetAttribute('name')
                     if ($PSCmdlet.ShouldProcess("Remove package $packageName from $xmlPath")) {
                         Write-InstallLog -text "Package $packageName will be removed" -Info
@@ -1009,6 +1026,12 @@ function Set-AutodeskDeployment {
             }
         }
 
+    }
+
+    foreach ($name in $Remove) {
+        if (-not $removeMatched.ContainsKey($name)) {
+            Write-InstallLog -text "No entry matching '$name' found to remove in $($xmlFileName -join ', ')" -Info
+        }
     }
 
     # no begin/process/end blocks needed

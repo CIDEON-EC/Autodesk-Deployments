@@ -633,7 +633,7 @@ Invoke-DeploymentWorkflow -ModeHandler {
             Mount-DeploymentImage
 
             # optional: install Vault without Vault Data Standard (removes the application from the product's setup.xml)
-            # Set-AutodeskDeployment -xmlFileName 'setup.xml' -Remove 'Vault Data Standard'
+            # Set-AutodeskDeployment -Remove 'Vault Data Standard'
 
             # install autodesk software
             Install-AutodeskDeployment
