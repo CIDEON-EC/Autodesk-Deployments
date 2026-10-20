@@ -241,7 +241,7 @@ jobs:
         Copy-Item -Path 'New-DeploymentImage.cmd' -Destination $packageName -Force
         Copy-Item -Path 'CIDEON.AutodeskDeployment.psm1' -Destination $packageName -Force
         Copy-Item -Path 'CIDEON-CodeSigning.cer' -Destination $packageName -Force
-        Copy-Item -Path 'readme.md' -Destination $packageName -Force
+        Copy-Item -Path 'README.md' -Destination $packageName -Force
 
         if (Test-Path -Path 'CHANGELOG.md') {
           Copy-Item -Path 'CHANGELOG.md' -Destination $packageName -Force

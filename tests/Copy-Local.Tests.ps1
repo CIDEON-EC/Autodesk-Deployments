@@ -55,7 +55,7 @@ Describe 'Copy-Local.ps1 module loader' -Tag 'Unit' {
         Mock -CommandName Import-Module -MockWith {}
         Mock -CommandName Set-InstallContext -MockWith {}
         Mock -CommandName Copy-Local -MockWith {}
-        Mock -CommandName Write-Warning -MockWith {}
+        Mock -CommandName Write-Host -MockWith {}
         # No local fallback unless a test enables it
         Mock -CommandName Test-Path -MockWith { $false } -ParameterFilter { $Path -like '*CIDEON.AutodeskDeployment.psm1' }
     }
@@ -110,7 +110,7 @@ Describe 'Copy-Local.ps1 module loader' -Tag 'Unit' {
 
         Invoke-Sut
 
-        Should -Invoke Write-Warning -Times 1 -Exactly
+        Should -Invoke Write-Host -Times 1 -Exactly
         Should -Invoke Import-Module -Times 1 -Exactly
     }
 
