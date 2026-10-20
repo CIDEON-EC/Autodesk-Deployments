@@ -269,7 +269,7 @@ function Assert-TrustedModuleSignature {
         One or more allowed signer thumbprints.
 
     .PARAMETER AllowUntrustedChain
-        Also accepts the status NotTrusted (intact signature, certificate chain without a
+        Also accepts the status NotTrusted or UnknownError (intact signature, certificate chain without a
         trusted root). Used when the certificate stores are not writable; the thumbprint
         pin is still enforced.
 
@@ -288,8 +288,9 @@ function Assert-TrustedModuleSignature {
 
     $acceptedStatus = @([System.Management.Automation.SignatureStatus]::Valid)
     if ($AllowUntrustedChain) {
-        # NotTrusted = file hash is intact but the chain has no trusted root; the thumbprint pin below still applies
+        # NotTrusted/UnknownError = file hash is intact but the (self-signed) chain has no trusted root; the thumbprint pin below still applies
         $acceptedStatus += [System.Management.Automation.SignatureStatus]::NotTrusted
+        $acceptedStatus += [System.Management.Automation.SignatureStatus]::UnknownError
     }
 
     if ($Signature.Status -notin $acceptedStatus) {
@@ -518,7 +519,10 @@ function Import-RemoteSignedDeploymentModule {
     }
     catch {
         # Stores locked by policy/EDR: rely on the pinned thumbprint instead of chain trust
-        Write-Warning "Could not add the certificate to the certificate stores ($($_.Exception.Message)). Continuing with thumbprint pinning only."
+        Write-Warning ("The CIDEON code-signing certificate could not be added to the Windows certificate stores ($($_.Exception.Message)). " +
+            'This is expected when the stores are locked by group policy or security software and is harmless: ' +
+            'the module is still verified by its signature and the pinned certificate thumbprint. ' +
+            'To avoid this warning, run the script elevated or deploy CIDEON-CodeSigning.cer to the Trusted Publishers/Root stores.')
         $script:AllowUntrustedChain = $true
     }
 

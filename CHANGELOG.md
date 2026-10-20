@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [Unreleased]
+### Security
+- `Copy-Local.ps1` now pins the release certificate and the module signer to the same thumbprint allowlist as `Install-ADSK.ps1` (previously it only checked for `Status -eq Valid`, so any certificate from the release could be added to `CurrentUser\TrustedPublisher` and any validly signed module was imported). The downloaded certificate is checked before it is added to the store; the local fallback module is checked the same way. If the certificate cannot be added to the store, a `NotTrusted`/`UnknownError` chain is accepted only when the signer thumbprint is pinned; `HashMismatch` is always rejected.
+### Changed
+- `Copy-Local.ps1` is now stored as UTF-8 with BOM instead of UTF-16 LE so Git can diff it
+### Added
+- Pester tests for the `Copy-Local.ps1` module loader (`Copy-Local.Tests.ps1`), included in `.scripts/Invoke-PesterTests.ps1`
+## [2.1.1] - 2026-10-13
+### Fixed
+- `Install-ADSK.ps1`: the untrusted-chain fallback now also accepts the signature status `UnknownError`, which Windows reports for the self-signed code-signing certificate when the root is not trusted (previously only `NotTrusted`, so module loading still failed). The thumbprint pin is still enforced; `HashMismatch` and `NotSigned` are still rejected.
 ## [2.1.0] - 2026-10-13
 ### Added
 - Release workflow now publishes `Install-ADSK.ps1` as a separate release asset for direct download
