@@ -347,4 +347,4 @@ A release is triggered by changing the `VERSION` file on `main`; CI creates the 
 
 ## License
 
-TODO: no license file exists in this repository yet. Add a `LICENSE` file and name the license here.
+Licensed under the [PolyForm Internal Use License 1.0.0](LICENSE.md). Required notice: Copyright (c) 2026 CIDEON Software & Services GmbH & Co. KG
