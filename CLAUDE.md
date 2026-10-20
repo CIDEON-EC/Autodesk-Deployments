@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-PowerShell tooling for deploying Autodesk products (Inventor, AutoCAD, Vault) via WIM files in enterprise environments. The solution has two layers:
+PowerShell tooling for deploying Autodesk products (Inventor, AutoCAD, Vault) via VHDX (or WIM) images in enterprise environments. The solution has two layers:
 
 - **`Install-ADSK.ps1`** — the customer-facing installer script. Downloads and validates `CIDEON.AutodeskDeployment.psm1` from a GitHub Release, verifies the Authenticode signature against a pinned thumbprint (`53D03841EC43C1C545F56919F9A6AEF0C7D2E783`), then calls `Invoke-DeploymentWorkflow -ModeHandler { ... }`. Customers customize the `switch ($Mode)` block inside the ModeHandler.
 - **`CIDEON.AutodeskDeployment.psm1`** — the signed module containing all helper/orchestration functions. Not present in this repo; it lives in GitHub Releases. Tests mock it.
@@ -48,16 +48,17 @@ Get-ChildItem -Recurse -Filter *.ps1 |
 
 If the code-signing certificate is rotated, update the pinned thumbprint allowlist in `Install-ADSK.ps1` and `Copy-Local.ps1` before trusting the new release.
 
-### WIM workflow
-1. WIM is copied locally (or mounted directly with `-NoDownload`)
-2. WIM is mounted to a temp path
+### Image workflow
+1. The image (`.vhdx` preferred, else `.wim`) is copied locally (`-NoDownload` mounts a `.wim` directly; not supported for `.vhdx`)
+2. The image is mounted to a temp path (`Mount-WindowsImage` / `Mount-DiskImage`)
 3. ModeHandler ScriptBlock runs (Install / Update / Uninstall)
-4. WIM is dismounted; a scheduled task is registered as a safety net for dismount on failure
+4. The image is dismounted; a scheduled task is registered as a safety net for dismount on failure
 
 ### Test files
-- `Install-ADSK.Tests.ps1` — tests the loader security (signature validation, fallback, missing assets) and mode dispatch
-- `Copy-Local.Tests.ps1` — tests the `Copy-Local.ps1` loader security (thumbprint pinning, store fallback, local fallback)
-- `CIDEON.AutodeskDeployment.Tests.ps1` — tests module functions; see `TEST-MATRIX.md` for coverage status
+- `tests/Install-ADSK.Tests.ps1` — tests the loader security (signature validation, fallback, missing assets) and mode dispatch
+- `tests/Copy-Local.Tests.ps1` — tests the `Copy-Local.ps1` loader security (thumbprint pinning, store fallback, local fallback)
+- `tests/CIDEON.AutodeskDeployment.Tests.ps1` — tests module functions; see `TEST-MATRIX.md` for coverage status
+- `tests/New-DeploymentImage.Tests.ps1` — tests the parameter checks of the image creation script
 
 ## PowerShell Conventions
 
@@ -79,3 +80,6 @@ When changing public function signatures or script parameters, update:
 1. `readme.md` — parameter table and usage examples
 2. `CHANGELOG.md` — under the appropriate section (`Added`, `Changed`, `Fixed`); prefix breaking changes with **BREAKING**
 3. Comment-based help inside the function itself
+
+### Release
+Releases are triggered by changing the `VERSION` file on `main` (not by tagging). CI creates the tag `v<VERSION>`, signs the module and builds the release; see `.github/workflows/README.md`. Release steps: bump `VERSION`, rename `[Unreleased]` in `CHANGELOG.md`, push.

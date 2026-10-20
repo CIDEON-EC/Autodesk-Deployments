@@ -1,7 +1,7 @@
 $WhatIfPreference = $false
 
 BeforeAll {
-    $sutPath = Join-Path -Path $PSScriptRoot -ChildPath 'Copy-Local.ps1'
+    $sutPath = Join-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -ChildPath 'Copy-Local.ps1'
     $global:CopyLocalTrustedThumbprint = '53D03841EC43C1C545F56919F9A6AEF0C7D2E783'
 
     # Stubs so Pester can mock module functions and the script-local store helper
@@ -124,7 +124,7 @@ Describe 'Copy-Local.ps1 module loader' -Tag 'Unit' {
             Invoke-Sut
 
             Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter {
-                $Name -eq (Join-Path -Path $PSScriptRoot -ChildPath 'CIDEON.AutodeskDeployment.psm1')
+                $Name -eq (Join-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -ChildPath 'CIDEON.AutodeskDeployment.psm1')
             }
         }
 

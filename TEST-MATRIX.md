@@ -25,7 +25,7 @@ Legend:
 | Dispatch | Install mode triggers expected functions | [x] |
 | Dispatch | Update mode triggers expected functions | [x] |
 | Dispatch | Uninstall mode triggers expected functions | [x] |
-| Input | .wim suffix is normalized | [x] |
+| Input | .wim and .vhdx suffix is normalized | [x] |
 
 ## CIDEON.AutodeskDeployment.psm1
 
@@ -53,9 +53,9 @@ Legend:
 | Set-CIDEONLanguageVariable | [x] | [ ] | [x] | [~] |
 | Set-CIDEONVariable | [x] | [ ] | [x] | [~] |
 | Rename-RegistryInstallationPath | [ ] | [ ] | [ ] | [ ] |
-| Copy-WIM | [x] | [ ] | [ ] | [~] |
-| Mount-WIM | [x] | [x] | [x] | [x] |
-| Dismount-WIM | [x] | [x] | [x] | [x] |
+| Copy-DeploymentImage | [x] | [ ] | [ ] | [~] |
+| Mount-DeploymentImage | [x] | [x] | [x] | [x] |
+| Dismount-DeploymentImage | [x] | [x] | [x] | [x] |
 | Register-WIMDismountTask | [x] | [ ] | [x] | [~] |
 | Set-AutodeskUpdate | [x] | [x] | [x] | [x] |
 | Get-AppLogError | [x] | [x] | n/a | [x] |

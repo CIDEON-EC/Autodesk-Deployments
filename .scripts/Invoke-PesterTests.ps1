@@ -43,11 +43,8 @@ if (-not $repositoryRoot) {
     throw 'Could not determine git repository root.'
 }
 
-$testFiles = @(
-    Join-Path -Path $repositoryRoot -ChildPath 'Install-ADSK.Tests.ps1'
-    Join-Path -Path $repositoryRoot -ChildPath 'Copy-Local.Tests.ps1'
-    Join-Path -Path $repositoryRoot -ChildPath 'CIDEON.AutodeskDeployment.Tests.ps1'
-) | Where-Object { Test-Path -LiteralPath $_ }
+$testFiles = @(Get-ChildItem -LiteralPath (Join-Path -Path $repositoryRoot -ChildPath 'tests') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty FullName)
 
 if (-not $testFiles) {
     Write-Host 'No Pester test files found. Skipping Pester check.'

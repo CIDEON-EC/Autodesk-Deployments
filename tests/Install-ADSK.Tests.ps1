@@ -1,7 +1,7 @@
 $WhatIfPreference = $false
 
 BeforeAll {
-    $sutPath = Join-Path -Path $PSScriptRoot -ChildPath 'Install-ADSK.ps1'
+    $sutPath = Join-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -ChildPath 'Install-ADSK.ps1'
     $global:InstallAdskTrustedThumbprint = '53D03841EC43C1C545F56919F9A6AEF0C7D2E783'
 
     if (-not (Get-Command -Name Set-InstallContext -ErrorAction SilentlyContinue)) {
@@ -87,8 +87,8 @@ BeforeAll {
     }
 
     @(
-        'Copy-WIM',
-        'Mount-WIM',
+        'Copy-DeploymentImage',
+        'Mount-DeploymentImage',
         'Install-AutodeskDeployment',
         'Install-Update',
         'Disable-VaultExtension',
@@ -105,7 +105,8 @@ BeforeAll {
     function Invoke-Sut {
         param(
             [Parameter(Mandatory)]
-            [string]$Wim,
+            [Alias('Wim')]
+            [string]$Image,
             [Parameter(Mandatory)]
             [ValidateSet('Install', 'Update', 'Uninstall')]
             [string]$Mode,
@@ -114,7 +115,7 @@ BeforeAll {
         )
 
         $invokeParams = @{
-            WIM   = $Wim
+            Image = $Image
             Mode  = $Mode
             Path  = $Path
             Quiet = $true
@@ -151,8 +152,8 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
         Mock -CommandName Set-InstallContext -MockWith {}
         Mock -CommandName Write-InstallLog -MockWith {}
 
-        Mock -CommandName Copy-WIM -MockWith {}
-        Mock -CommandName Mount-WIM -MockWith {}
+        Mock -CommandName Copy-DeploymentImage -MockWith {}
+        Mock -CommandName Mount-DeploymentImage -MockWith {}
         Mock -CommandName Install-AutodeskDeployment -MockWith {}
         Mock -CommandName Set-AutodeskUpdate -MockWith {}
         Mock -CommandName Install-Update -MockWith {}
@@ -186,11 +187,17 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
         }
     }
 
-    Context 'WIM parameter normalization' {
-        It 'removes .wim suffix before passing context to module' {
-            Invoke-Sut -Wim 'PDC_2026.wim' -Mode 'Install'
+    Context 'Image parameter normalization' {
+        It 'removes the extension of <_> before passing context to module' -ForEach 'PDC_2026.wim', 'PDC_2026.vhdx', 'PDC_2026' {
+            Invoke-Sut -Image $_ -Mode 'Install'
 
-            Should -Invoke Set-InstallContext -Times 1 -Exactly
+            Should -Invoke Set-InstallContext -Times 1 -Exactly -ParameterFilter { $Context.Image -eq 'PDC_2026' }
+        }
+
+        It 'still accepts the former parameter name -WIM' {
+            & $sutPath -WIM 'PDC_2026' -Mode 'Install' -Path $PSScriptRoot -Quiet
+
+            Should -Invoke Set-InstallContext -Times 1 -Exactly -ParameterFilter { $Context.Image -eq 'PDC_2026' }
         }
     }
 
@@ -598,8 +605,8 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
         It 'runs installation steps including tools, update and local copy' {
             Invoke-Sut -Wim 'PDC_2026' -Mode 'Install'
 
-            Should -Invoke Copy-WIM -Times 1 -Exactly
-            Should -Invoke Mount-WIM -Times 1 -Exactly
+            Should -Invoke Copy-DeploymentImage -Times 1 -Exactly
+            Should -Invoke Mount-DeploymentImage -Times 1 -Exactly
             Should -Invoke Install-AutodeskDeployment -Times 1 -Exactly
             Should -Invoke Set-AutodeskUpdate -Times 1 -Exactly
             Should -Invoke Install-Update -Times 1 -Exactly
@@ -615,10 +622,10 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
         It 'mounts deployment and only applies update/local copy operations' {
             Invoke-Sut -Wim 'PDC_2026' -Mode 'Update'
 
-            Should -Invoke Mount-WIM -Times 1 -Exactly
+            Should -Invoke Mount-DeploymentImage -Times 1 -Exactly
             Should -Invoke Install-Update -Times 1 -Exactly
             Should -Invoke Copy-Local -Times 1 -Exactly
-            Should -Invoke Copy-WIM -Times 0 -Exactly
+            Should -Invoke Copy-DeploymentImage -Times 0 -Exactly
             Should -Invoke Install-AutodeskDeployment -Times 0 -Exactly
             Should -Invoke Install-CIDEONTool -Times 0 -Exactly
             Should -Invoke Uninstall-Program -Times 0 -Exactly
@@ -631,8 +638,8 @@ Describe 'Install-ADSK.ps1' -Tag 'Unit' {
 
             Should -Invoke Uninstall-Program -Times 1
 
-            Should -Invoke Copy-WIM -Times 0 -Exactly
-            Should -Invoke Mount-WIM -Times 0 -Exactly
+            Should -Invoke Copy-DeploymentImage -Times 0 -Exactly
+            Should -Invoke Mount-DeploymentImage -Times 0 -Exactly
             Should -Invoke Install-Update -Times 0 -Exactly
         }
     }

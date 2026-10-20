@@ -8,14 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - `Copy-Local.ps1` now pins the release certificate and the module signer to the same thumbprint allowlist as `Install-ADSK.ps1` (previously it only checked for `Status -eq Valid`, so any certificate from the release could be added to `CurrentUser\TrustedPublisher` and any validly signed module was imported). The downloaded certificate is checked before it is added to the store; the local fallback module is checked the same way. If the certificate cannot be added to the store, a `NotTrusted`/`UnknownError` chain is accepted only when the signer thumbprint is pinned; `HashMismatch` is always rejected.
 ### Added
+- `New-DeploymentImage.ps1` / `New-DeploymentImage.cmd`: creates a `.vhdx` deployment image from a deployment folder (drag the folder onto the `.cmd`; replaces the 7-Zip WIM step). Uses `diskpart`, no Hyper-V module needed, starts itself elevated. Included in the release package and as release assets.
+- Images can be `.vhdx` or `.wim`; the extension is detected (`<Image>.vhdx` is preferred over `<Image>.wim`). A VHDX is attached with `Mount-DiskImage` and uses its drive letter instead of a mount folder (`mountPath` and the config file paths are set to the drive root after mounting), so all other functions keep working.
 - Pester tests for the `Copy-Local.ps1` module loader (`Copy-Local.Tests.ps1`), included in `.scripts/Invoke-PesterTests.ps1`
 ### Changed
+- **BREAKING (compatible via aliases)**: parameter `-WIM` of `Install-ADSK.ps1` is now `-Image` (`-WIM` still works as alias, also with an extension); `Copy-WIM`, `Mount-WIM`, `Dismount-WIM` are now `Copy-DeploymentImage`, `Mount-DeploymentImage`, `Dismount-DeploymentImage` (old names are exported aliases); the install context variables `$WIM` and `$wimFile` are now `$Image` and `$imageFile`. `Register-WIMDismountTask` and `Update-WIMInspectionCache` keep their names.
+- `-NoDownload` is not supported for `.vhdx` images (a VHDX cannot be attached from a network share); `Copy-DeploymentImage` throws a clear error.
+- A VHDX is mounted read-write, so changes the installer makes in the image (e.g. the rewritten `Collection.xml`) persist in the local copy.
+- A VHDX that is still attached from an aborted run is dismounted before it is mounted again (no scheduled cleanup task is needed for a VHDX; an attachment does not survive a reboot).
+- Release process: a release is now triggered by changing the `VERSION` file on `main` instead of pushing a `v*` tag; the workflow creates the tag. Pre-release versions can also be released from `release/**` branches without merging to `main`. Removed the tag tasks from `.vscode/tasks.json` (see `.github/workflows/README.md`).
+- Pester tests moved to `tests/`; `.scripts/Invoke-PesterTests.ps1` runs every `tests/*.Tests.ps1`.
+- `Install-AutodeskDeployment`: waits for the started `Installer.exe` process and logs its exit code and duration; a non-zero exit code is logged as an error instead of always reporting success.
+- `Copy-Local.ps1` is now stored as UTF-8 with BOM instead of UTF-16 LE so Git can diff it
 - `Set-AutodeskUpdate` writes the ODIS setting to the logged-on user's hive (`HKEY_USERS\<SID>`) like `Set-InventorProjectFile`, instead of `HKCU` of the elevated or SYSTEM account. Falls back to `HKCU` if the SID cannot be resolved or the hive is not loaded.
 - `Get-AppLogError` lets the event log service filter for `MsiInstaller` errors (`-FilterHashtable`) instead of loading the whole Application log
 - CI: new `test` job (PSScriptAnalyzer and Pester on `windows-latest`) for every push and pull request; the release job only runs when it passes
 - `.gitignore`: ignore `*.pem`, `.env*`, credential JSON files, `_LOG/`, `.claude/settings.local.json` and `*.code-workspace`
-- `Copy-Local.ps1` is now stored as UTF-8 with BOM instead of UTF-16 LE so Git can diff it
 ### Fixed
+- `Install-ADSK.ps1` with Autodesk ODIS 2.24+ (Autodesk 2027): `Installer.exe` refused every file inside a mounted WIM (`file missing or not a regular file`, exit code 453 after < 1 s, no deployment log), because files in a mounted WIM are reparse points (tag `0x80000008`). For these versions use a `.vhdx` image (see `New-DeploymentImage.ps1`): its files are regular files. `.wim` images remain supported for older versions.
+- `Dismount-WIM`: `-Purge` of `Install-ADSK.ps1` is now honoured when the ModeHandler calls a plain `Dismount-WIM` (the WIM was dismounted there, so the final purge in `Invoke-DeploymentWorkflow` found nothing mounted and never deleted the local WIM). Network paths and `-NoDownload` are still never purged.
+- `Install-AutodeskDeployment`: the deployment log is now named `Install-ADSK-Deployment-<WIM>.log` (typo `Deplyoment` fixed, as documented in the readme).
 - `Copy-WIM`/`Mount-WIM`: a failed WIM copy, a failed mount or a missing config file now stops the workflow (`HardAbort`). Previously the ModeHandler `trap` continued and ran installation, tools, updates and `Copy-Local` against an empty mount folder. Works for existing customised `Install-ADSK.ps1` scripts without changes.
 - `Copy-WIM` copies the WIM again when the existing local file differs from the source in size or modification time (previously any local file with the same name was reused)
 - `Uninstall-Program` uninstalls MSI products with `msiexec /x {ProductCode}`. Previously an `UninstallString` with `/I` was run as is, which starts a silent repair instead of an uninstall.

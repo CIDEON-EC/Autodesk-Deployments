@@ -17,7 +17,7 @@ function Set-InstallContext {
     .DESCRIPTION
         Accepts a hashtable of key-value pairs and publishes each entry as a global variable
         so that all downstream module functions can access shared state such as Version,
-        LogFile, wimFile, mountPath and ConfigFullFilenames.
+        LogFile, imageFile, mountPath and ConfigFullFilenames.
 
     .PARAMETER Context
         A hashtable whose keys become global variable names and whose values become their values.
@@ -137,12 +137,12 @@ function Stop-AutodeskProcess {
 function Invoke-DeploymentWorkflow {
     <#
     .SYNOPSIS
-        Orchestrates the full WIM deployment lifecycle and invokes a caller-supplied mode handler.
+        Orchestrates the full image (.wim or .vhdx) deployment lifecycle and invokes a caller-supplied mode handler.
 
     .DESCRIPTION
-        Validates the software version, sets up logging, discovers the WIM file, prepares mount
+        Validates the software version, sets up logging, discovers the image file, prepares mount
         paths and configuration file names, then executes the supplied ScriptBlock inside a
-        try/catch/finally that handles error logging, WIM dismount and log-file archival.
+        try/catch/finally that handles error logging, image dismount and log-file archival.
 
         The caller passes the mode-specific logic (Install / Update / Uninstall) as a ScriptBlock
         so that customer-specific adjustments stay in Install-ADSK.ps1 while all infrastructure
@@ -150,13 +150,13 @@ function Invoke-DeploymentWorkflow {
 
     .PARAMETER ModeHandler
         A ScriptBlock that contains the mode-specific deployment logic (typically a switch on $Mode).
-        It is invoked after the WIM is prepared and the install context is set.
+        It is invoked after the image is prepared and the install context is set.
 
     .EXAMPLE
         Invoke-DeploymentWorkflow -ModeHandler {
             switch ($Mode) {
                 'Install'   { Install-AutodeskDeployment }
-                'Update'    { Mount-WIM; Install-Update; Copy-Local }
+                'Update'    { Mount-DeploymentImage; Install-Update; Copy-Local }
                 'Uninstall' { Uninstall-Program -Publisher 'CIDEON' }
             }
         }
@@ -176,7 +176,7 @@ function Invoke-DeploymentWorkflow {
             $errorRecord = [System.Management.Automation.ErrorRecord]::new(
                 [System.ArgumentException]::new(
                     "Version must be a 4-digit year string (e.g. '2026'). Received: '$Version'. " +
-                    'Supply -Version explicitly or ensure the WIM name contains a 4-digit number.'
+                    'Supply -Version explicitly or ensure the image name contains a 4-digit number.'
                 ),
                 'InvalidVersionFormat',
                 [System.Management.Automation.ErrorCategory]::InvalidArgument,
@@ -206,26 +206,26 @@ function Invoke-DeploymentWorkflow {
     process {
         $startTime = Get-Date
 
-        # Discover WIM file
-        $wimFile = Get-ChildItem -Path $Path -Filter "$WIM.wim" -File -ErrorAction SilentlyContinue |
+        # Discover image file (.vhdx wins over .wim when both exist)
+        $imageFile = '.vhdx', '.wim' | ForEach-Object { Get-ChildItem -Path $Path -Filter "$Image$_" -File -ErrorAction SilentlyContinue } |
         Select-Object -First 1
 
-        if (-not $wimFile) {
+        if (-not $imageFile) {
             $errorRecord = [System.Management.Automation.ErrorRecord]::new(
-                [System.IO.FileNotFoundException]::new("No WIM file matching '$WIM.wim' found in '$Path'."),
-                'WimFileNotFound',
+                [System.IO.FileNotFoundException]::new("No image file matching '$Image.vhdx' or '$Image.wim' found in '$Path'."),
+                'ImageFileNotFound',
                 [System.Management.Automation.ErrorCategory]::ObjectNotFound,
                 $Path
             )
             $PSCmdlet.ThrowTerminatingError($errorRecord)
         }
 
-        Write-InstallLog -text "WIM File: $wimFile" -Info
+        Write-InstallLog -text "Image File: $imageFile" -Info
 
         # Mount path
         $mountPath = [System.IO.Path]::Combine(
             $LocalFolder,
-            'mount_' + [System.IO.Path]::GetFileNameWithoutExtension($wimFile.Name)
+            'mount_' + [System.IO.Path]::GetFileNameWithoutExtension($imageFile.Name)
         )
 
         # Build config file paths
@@ -235,13 +235,13 @@ function Invoke-DeploymentWorkflow {
         }
 
         Set-InstallContext -Context @{
-            wimFile             = $wimFile
+            imageFile           = $imageFile
             mountPath           = $mountPath
             ConfigFullFilenames = $ConfigFullFilenames
         }
 
-        # Create mount directory
-        if (-not (Test-Path $mountPath)) {
+        # Create mount directory (a .vhdx is mapped to a drive letter instead, see Mount-DeploymentImage)
+        if ([System.IO.Path]::GetExtension($imageFile.Name) -ne '.vhdx' -and -not (Test-Path $mountPath)) {
             New-Item -Path $mountPath -ItemType Directory | Out-Null
             Write-InstallLog -text "Created $mountPath" -Info
         }
@@ -264,20 +264,20 @@ function Invoke-DeploymentWorkflow {
             try {
                 Get-AppLogError -Start $startTime
 
-                # Dismount and optionally delete WIM
-                Write-InstallLog -text "Dismounting WIM $($wimFile.Name)" -Info
+                # Dismount and optionally delete the image file
+                Write-InstallLog -text "Dismounting image $($imageFile.Name)" -Info
                 if ($WhatIfPreference -and $script:InspectMount) {
-                    Dismount-WIM -File $script:InspectMount -WhatIf:$false
-                    Write-InstallLog -text 'WIM inspection complete and dismounted' -Info
+                    Dismount-DeploymentImage -File $script:InspectMount -WhatIf:$false
+                    Write-InstallLog -text 'Image inspection complete and dismounted' -Info
                 }
                 elseif ($NoDownload.IsPresent) {
-                    Dismount-WIM
+                    Dismount-DeploymentImage
                 }
                 elseif ($Purge.IsPresent) {
-                    Dismount-WIM -Purge
+                    Dismount-DeploymentImage -Purge
                 }
                 else {
-                    Dismount-WIM
+                    Dismount-DeploymentImage
                 }
             }
             catch {
@@ -410,7 +410,7 @@ function Write-InstallProgress {
 function Update-WIMInspectionCache {
     <#
     .SYNOPSIS
-        Updates cached file and folder information from a mounted WIM path.
+        Updates cached file and folder information from a mounted image path.
 
     .DESCRIPTION
         Reads available content from the folders "Updates", "Cideon" and "Local" in a mounted image
@@ -693,7 +693,7 @@ function Install-AutodeskDeployment {
     }
 
     if (-not $PSBoundParameters.ContainsKey('DeploymentName')) {
-        $deploymentNameVariable = Get-Variable -Name WIM -Scope Global -ErrorAction SilentlyContinue
+        $deploymentNameVariable = Get-Variable -Name Image -Scope Global -ErrorAction SilentlyContinue
         if ($deploymentNameVariable) {
             $DeploymentName = $deploymentNameVariable.Value
         }
@@ -711,7 +711,7 @@ function Install-AutodeskDeployment {
     foreach ($ConfigFullFilename in $configFiles) {
         Write-InstallLog -text "Started Installation of ConfigFile: $ConfigFullFilename" -Info
         $configName = Split-Path $ConfigFullFilename -Leaf
-        $deploymentLogPath = [System.IO.Path]::Combine($LogFolder, "Install-ADSK-Deplyoment-$DeploymentName.log")
+        $deploymentLogPath = [System.IO.Path]::Combine($LogFolder, "Install-ADSK-Deployment-$DeploymentName.log")
 
         if (-not (Test-Path -Path $ConfigFullFilename -PathType Leaf)) {
             Write-InstallLog -text "Config file not found: $ConfigFullFilename" -Fail
@@ -764,9 +764,18 @@ function Install-AutodeskDeployment {
         $installerArgs = "-i deploy --offline_mode -q -o `"$ConfigFullFilename`""
         if ($PSCmdlet.ShouldProcess($configName, "Install Autodesk Deployment with arguments: $installerArgs")) {
             Write-InstallProgress -Text "Starting Autodesk deployment: $configName"
-            Start-Process -FilePath $installerPath -ArgumentList $installerArgs -PassThru | Out-Null
-            # Waiting
-            Wait-Process -Name 'Installer'
+            $installerStart = Get-Date
+            $installerProcess = Start-Process -FilePath $installerPath -ArgumentList $installerArgs -PassThru
+            $installerProcess.WaitForExit()
+            # Installer.exe may hand over to a second process with the same name
+            Wait-Process -Name 'Installer' -ErrorAction SilentlyContinue
+            $installerSeconds = [int]((Get-Date) - $installerStart).TotalSeconds
+            if ($installerProcess.ExitCode -eq 0) {
+                Write-InstallLog -text "Installer.exe finished for $configName after $installerSeconds s (exit code 0)" -Info
+            }
+            else {
+                Write-InstallLog -text "Installer.exe failed for $configName after $installerSeconds s with exit code $($installerProcess.ExitCode). Arguments: $installerArgs" -Fail
+            }
         }
     }
 
@@ -1836,7 +1845,7 @@ function Rename-RegistryInstallationPath {
     $RegistryPath = 'HKLM:\SOFTWARE\Classes\Installer\Products'
     $Registry = Get-ChildItem $RegistryPath -Recurse
     $SearchQuery = [System.IO.Path]::Combine($mountPath, 'image')
-    $NewValue = [System.IO.Path]::Combine($Path, [System.IO.Path]::GetFileNameWithoutExtension($wimFile.Name) , 'image')
+    $NewValue = [System.IO.Path]::Combine($Path, [System.IO.Path]::GetFileNameWithoutExtension($imageFile.Name) , 'image')
 
     Write-InstallLog -text 'Reg Change' -Info
 
@@ -1857,29 +1866,96 @@ function Rename-RegistryInstallationPath {
         }
     }
 }
-function Copy-WIM {
+function Mount-ImageFile {
     <#
     .SYNOPSIS
-        Copies the WIM file from the network share to the local machine.
+        Mounts a .wim or .vhdx image file to a folder.
 
     .DESCRIPTION
-        Copies the specified WIM file from the network share to the local folder so that
+        A .wim is mounted with Mount-WindowsImage to the folder given in -Path. A .vhdx is attached with Mount-DiskImage
+        and its data partition gets a drive letter, so no folder is needed; -Path is ignored for a .vhdx.
+        Files inside a mounted WIM are reparse points, which the Autodesk installer (ODIS 2.24+) refuses to verify;
+        files inside a mounted VHDX are regular files.
+
+    .PARAMETER ImagePath
+        Full path of the .wim or .vhdx file.
+
+    .PARAMETER Path
+        Existing empty folder to mount a .wim to. Ignored for a .vhdx.
+
+    .PARAMETER ReadOnly
+        Mount the image read-only.
+
+    .OUTPUTS
+        System.String. The root path of the mounted image: -Path for a .wim, the drive root (e.g. 'E:\') for a .vhdx.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [Parameter(Mandatory)]
+        [string]$ImagePath,
+        [Parameter()]
+        [string]$Path,
+        [Parameter()]
+        [switch]$ReadOnly
+    )
+
+    if ([System.IO.Path]::GetExtension($ImagePath) -ne '.vhdx') {
+        Mount-WindowsImage -ImagePath $ImagePath -Index 1 -Path $Path -ReadOnly:$ReadOnly -ErrorAction Stop | Out-Null
+        return $Path
+    }
+
+    # a VHDX left attached by an aborted run (installer still holding files) would block the copy and the mount; detach it first
+    if ((Get-DiskImage -ImagePath $ImagePath).Attached) {
+        Write-InstallLog -text "Image $ImagePath is still attached from an earlier run, dismounting it first" -Info
+        Dismount-DiskImage -ImagePath $ImagePath -ErrorAction Stop | Out-Null
+    }
+
+    $access = if ($ReadOnly) { 'ReadOnly' } else { 'ReadWrite' }
+    Mount-DiskImage -ImagePath $ImagePath -Access $access -ErrorAction Stop | Out-Null
+    try {
+        # the largest partition is the data partition (skips the reserved partition of a GPT disk)
+        $getDataPartition = { Get-DiskImage -ImagePath $ImagePath | Get-Disk | Get-Partition | Sort-Object -Property Size -Descending | Select-Object -First 1 }
+        $partition = & $getDataPartition
+        if (-not $partition.DriveLetter) {
+            Add-PartitionAccessPath -DiskNumber $partition.DiskNumber -PartitionNumber $partition.PartitionNumber -AssignDriveLetter -ErrorAction Stop
+            $partition = & $getDataPartition
+        }
+        if (-not $partition.DriveLetter) {
+            throw "No drive letter could be assigned to the data partition of $ImagePath"
+        }
+        return "$($partition.DriveLetter):\"
+    }
+    catch {
+        Dismount-DiskImage -ImagePath $ImagePath | Out-Null
+        throw
+    }
+}function Copy-DeploymentImage {
+    <#
+    .SYNOPSIS
+        Copies the deployment image (.wim or .vhdx) from the network share to the local machine.
+
+    .DESCRIPTION
+        Copies the specified image file from the network share to the local folder so that
         it can be mounted locally for faster installation.  When the NoDownload switch is
-        active the copy is skipped and the original server path is returned instead.
+        active the copy is skipped and the original server path is returned instead. NoDownload
+        is not supported for .vhdx images, because a VHDX cannot be attached from a network share.
 
     .PARAMETER File
-        System.IO.FileInfo or String (full path) of the WIM file.
+        System.IO.FileInfo or String (full path) of the image file.
 
     .PARAMETER Folder
-        The folder to copy the WIM file to.  Default is the LocalFolder variable.
+        The folder to copy the image file to.  Default is the LocalFolder variable.
 
     .EXAMPLE
-        Copy-WIM
-        Copy-WIM -File '\\server\share\PDC_2026.wim' -Folder 'C:\Temp'
+        Copy-DeploymentImage
+        Copy-DeploymentImage -File '\\server\share\PDC_2026.vhdx' -Folder 'C:\Temp'
 
     .NOTES
         Autor: Timon Först
+        The former name Copy-WIM still works as an alias.
     #>
+    [Alias('Copy-WIM')]
     [CmdletBinding(SupportsShouldProcess = $true)]
     param (
 
@@ -1891,8 +1967,8 @@ function Copy-WIM {
 
     begin {
         if (-not $PSBoundParameters.ContainsKey('File') -or $null -eq $File) {
-            $wimFileVar = Get-Variable -Name 'wimFile' -Scope Global -ErrorAction SilentlyContinue
-            if ($wimFileVar) { $File = $wimFileVar.Value }
+            $imageFileVar = Get-Variable -Name 'imageFile' -Scope Global -ErrorAction SilentlyContinue
+            if ($imageFileVar) { $File = $imageFileVar.Value }
         }
         if (-not $PSBoundParameters.ContainsKey('Folder') -or [string]::IsNullOrWhiteSpace($Folder)) {
             $localFolderVar = Get-Variable -Name 'LocalFolder' -Scope Global -ErrorAction SilentlyContinue
@@ -1906,93 +1982,103 @@ function Copy-WIM {
         if ($File -is [string]) {
             $File = Get-Item -Path $File
         }
-        # local wim filepath
-        $localwimFile = [System.IO.Path]::Combine($Folder, $File.Name)
+        if ($noDownload.IsPresent -and [System.IO.Path]::GetExtension($File.FullName) -eq '.vhdx') {
+            $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                [System.NotSupportedException]::new('-NoDownload is not supported for .vhdx images, because a VHDX cannot be attached from a network share. Copy the image locally or provide a .wim.'),
+                'NoDownloadNotSupportedForVhdx',
+                [System.Management.Automation.ErrorCategory]::InvalidOperation,
+                $File
+            )
+            $PSCmdlet.ThrowTerminatingError($errorRecord)
+        }
+        # local image filepath
+        $localImageFile = [System.IO.Path]::Combine($Folder, $File.Name)
     }
 
     process {
 
-        # copy wim to local path
+        # copy image to local path
         if ($noDownload.IsPresent) {
-            Write-InstallLog -text 'No Download of WIM file to local folder. Mounting from server.' -Info
-            Write-InstallLog -text 'WARNING: WIM will be mounted directly from server path. Using -Purge with -NoDownload will delete the source WIM on the network share.' -Fail
-            # mount wim from network
-            $localwimFile = $File.FullName
+            Write-InstallLog -text 'No Download of image file to local folder. Mounting from server.' -Info
+            Write-InstallLog -text 'WARNING: Image will be mounted directly from server path. Using -Purge with -NoDownload will delete the source image on the network share.' -Fail
+            # mount image from network
+            $localImageFile = $File.FullName
         }
         else {
-            # reuse an existing local WIM only if it still matches the source (Copy-Item keeps LastWriteTime)
+            # reuse an existing local image only if it still matches the source (Copy-Item keeps LastWriteTime)
             $isCurrent = $false
-            if ([System.IO.File]::Exists($localwimFile)) {
-                $localInfo = Get-Item -Path $localwimFile
+            if ([System.IO.File]::Exists($localImageFile)) {
+                $localInfo = Get-Item -Path $localImageFile
                 $isCurrent = $localInfo.Length -eq $File.Length -and
                 [Math]::Abs(($localInfo.LastWriteTime - $File.LastWriteTime).TotalSeconds) -le 2
                 if ($isCurrent) {
-                    Write-InstallLog -text 'WIM file already exists, no download needed' -Info
+                    Write-InstallLog -text 'Image file already exists, no download needed' -Info
                 }
                 else {
-                    Write-InstallLog -text 'Local WIM file differs from source (size or modification time), copying again' -Info
+                    Write-InstallLog -text 'Local image file differs from source (size or modification time), copying again' -Info
                 }
             }
-            if (-not $isCurrent -and $PSCmdlet.ShouldProcess($File.FullName, "Copy WIM to $Folder")) {
+            if (-not $isCurrent -and $PSCmdlet.ShouldProcess($File.FullName, "Copy image to $Folder")) {
                 Write-InstallLog -text "Copy $($File.FullName) to $Folder" -Info
                 try {
                     Copy-Item $File.FullName $Folder -Force -ErrorAction Stop
                 }
                 catch {
-                    # every following step needs the WIM: HardAbort stops the workflow instead of the ModeHandler trap continuing
+                    # every following step needs the image: HardAbort stops the workflow instead of the ModeHandler trap continuing
                     $_.Exception.Data['HardAbort'] = $true
                     $PSCmdlet.ThrowTerminatingError($_)
                 }
-                Write-InstallLog -text 'WIM file copied' -Info
-            }
-        }
+                Write-InstallLog -text 'Image file copied' -Info
+            }        }
     }
 
     end {
-        # Update global wimFile context so Mount-WIM picks up the local copy
+        # Update global imageFile context so Mount-DeploymentImage picks up the local copy
         $resolvedFile = if ($WhatIfPreference) {
             if ($noDownload.IsPresent) {
                 $File
             }
-            elseif (Test-Path -Path $localwimFile) {
-                Get-Item -Path $localwimFile
+            elseif (Test-Path -Path $localImageFile) {
+                Get-Item -Path $localImageFile
             }
             else {
                 $File
             }
         }
         else {
-            Get-Item -Path $localwimFile
+            Get-Item -Path $localImageFile
         }
 
-        Set-InstallContext -Context @{ wimFile = $resolvedFile }
+        Set-InstallContext -Context @{ imageFile = $resolvedFile }
     }
 }
-function Mount-WIM {
+function Mount-DeploymentImage {
 
     <#
     .SYNOPSIS
-        Mounts the specified WIM file to the specified path.
+        Mounts the specified image file (.wim or .vhdx) to the specified path.
 
     .DESCRIPTION
-        Mounts the specified WIM file to the local mount path.  In WhatIf mode the WIM is
-        mounted read-only to a temporary directory for inspection purposes, the inspection
+        Mounts the specified image file to the local mount path (see Mount-ImageFile).  In WhatIf mode the
+        image is mounted read-only to a temporary directory for inspection purposes, the inspection
         cache is populated and the mount reference is stored in $script:InspectMount so that
         Invoke-DeploymentWorkflow can dismount it in its finally block.
 
     .PARAMETER File
-        System.IO.FileInfo or String (full path) of the WIM file.
+        System.IO.FileInfo or String (full path) of the image file.
 
     .PARAMETER Path
-        The path to mount the WIM file to.
+        The path to mount the image file to.
 
     .EXAMPLE
-        Mount-WIM
-        Mount-WIM -File 'C:\Temp\PDC_2026.wim' -Path 'C:\Temp\mount_PDC_2026'
+        Mount-DeploymentImage
+        Mount-DeploymentImage -File 'C:\Temp\PDC_2026.vhdx' -Path 'C:\Temp\mount_PDC_2026'
 
     .NOTES
         Autor: Timon Först
+        The former name Mount-WIM still works as an alias.
    #>
+    [Alias('Mount-WIM')]
     [CmdletBinding(SupportsShouldProcess = $true)]
     param (
         [Parameter()]
@@ -2002,8 +2088,8 @@ function Mount-WIM {
     )
     begin {
         if (-not $PSBoundParameters.ContainsKey('File') -or $null -eq $File) {
-            $wimFileVar = Get-Variable -Name 'wimFile' -Scope Global -ErrorAction SilentlyContinue
-            if ($wimFileVar) { $File = $wimFileVar.Value }
+            $imageFileVar = Get-Variable -Name 'imageFile' -Scope Global -ErrorAction SilentlyContinue
+            if ($imageFileVar) { $File = $imageFileVar.Value }
         }
         if (-not $PSBoundParameters.ContainsKey('Path') -or [string]::IsNullOrWhiteSpace($Path)) {
             $mountPathVar = Get-Variable -Name 'mountPath' -Scope Global -ErrorAction SilentlyContinue
@@ -2019,17 +2105,19 @@ function Mount-WIM {
         if ($WhatIfPreference) {
             $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
             if (-not $isAdmin) {
-                Write-InstallLog -text 'WhatIf mode: WIM inspection requires elevated rights. Start PowerShell as Administrator to see file details.' -Info
+                Write-InstallLog -text 'WhatIf mode: image inspection requires elevated rights. Start PowerShell as Administrator to see file details.' -Info
                 return
             }
 
-            $tempMount = [System.IO.Path]::Combine($env:TEMP, "WIM_Inspect_$(Get-Random)")
+            $tempMount = [System.IO.Path]::Combine($env:TEMP, "Image_Inspect_$(Get-Random)")
             $mounted = $false
             try {
-                New-Item -Path $tempMount -ItemType Directory -Force -WhatIf:$false | Out-Null
-                Mount-WindowsImage -ImagePath $File.FullName -Index 1 -Path $tempMount -ReadOnly -ErrorAction Stop | Out-Null
+                if ($File.FullName -notlike '*.vhdx') {
+                    New-Item -Path $tempMount -ItemType Directory -Force -WhatIf:$false | Out-Null
+                }
+                $tempMount = Mount-ImageFile -ImagePath $File.FullName -Path $tempMount -ReadOnly
                 $mounted = $true
-                Write-InstallLog -text 'WIM mounted read-only for inspection' -Info
+                Write-InstallLog -text 'Image mounted read-only for inspection' -Info
                 Update-WIMInspectionCache -MountedPath $tempMount
 
                 $script:InspectMount = [pscustomobject]@{
@@ -2038,7 +2126,7 @@ function Mount-WIM {
                 }
             }
             catch {
-                Write-InstallLog -text "WhatIf mode: WIM inspection skipped - $($_.Exception.Message)" -Info
+                Write-InstallLog -text "WhatIf mode: image inspection skipped - $($_.Exception.Message)" -Info
                 if (-not $mounted -and (Test-Path -Path $tempMount)) {
                     Remove-Item -Path $tempMount -Force -Recurse -ErrorAction SilentlyContinue -WhatIf:$false
                 }
@@ -2047,10 +2135,19 @@ function Mount-WIM {
         }
 
         try {
-            # Normal mode: mount WIM
-            if ($PSCmdlet.ShouldProcess($File.FullName, "Mount WIM to $Path")) {
-                Mount-WindowsImage -ImagePath $File.FullName -Index 1 -Path $Path -ErrorAction Stop | Out-Null
-                Write-InstallLog -text "WIM $File.FullName mounted to $Path" -Info
+            # Normal mode: mount image
+            if ($PSCmdlet.ShouldProcess($File.FullName, "Mount image to $Path")) {
+                $mountedPath = Mount-ImageFile -ImagePath $File.FullName -Path $Path
+                if ($mountedPath -ne $Path) {
+                    # a .vhdx is mounted to a drive letter: point the context (and the config file paths below it) there
+                    $oldRoot = $Path.TrimEnd('\')
+                    $newRoot = $mountedPath.TrimEnd('\')
+                    $mappedConfigs = @($ConfigFullFilenames | ForEach-Object { if ($_.StartsWith($oldRoot, [System.StringComparison]::OrdinalIgnoreCase)) { $newRoot + $_.Substring($oldRoot.Length) } else { $_ } })
+                    Set-InstallContext -Context @{ mountPath = $mountedPath; ConfigFullFilenames = $mappedConfigs }
+                    $Path = $mountedPath
+                    $ConfigFullFilenames = $mappedConfigs
+                }
+                Write-InstallLog -text "Image $($File.FullName) mounted to $Path" -Info
             }
 
             # check if configfile exists
@@ -2072,36 +2169,38 @@ function Mount-WIM {
         # nothing to do here
     }
 }
-function Dismount-WIM {
+function Dismount-DeploymentImage {
     <#
     .SYNOPSIS
-        Dismounts the specified WIM file to the specified path.
+        Dismounts the specified image file (.wim or .vhdx).
 
     .DESCRIPTION
-        Dismounts the specified WIM file to the specified path. The WIM file is expected to be in the specified path.
+        Dismounts the specified image file and removes the mount directory. A WIM is dismounted with
+        Dismount-WindowsImage -Discard, a VHDX with Dismount-DiskImage.
 
-        When -Purge is specified, only local WIM files will be deleted. Network paths (e.g. '\\server\share\file.wim')
-        are detected and the deletion is aborted to prevent accidental loss of the source WIM on a network share.
-        This safeguard ensures that the original WIM file from a central deployment share is never deleted.
+        When -Purge is specified, only local image files will be deleted. Network paths (e.g. '\\server\share\file.wim')
+        are detected and the deletion is aborted to prevent accidental loss of the source image on a network share.
+        This safeguard ensures that the original image file from a central deployment share is never deleted.
 
-    .PARAMETER Name
-        The name of the WIM file to dismount, WIHOUT extension.
+    .PARAMETER File
+        The image file to dismount (FileInfo or path). Defaults to the image of the install context.
     .PARAMETER purge
-        If set, the local WIM file will be deleted after dismounting. Network paths are never purged —
-        an error is thrown instead to protect the source WIM on a network share.
+        If set, the local image file will be deleted after dismounting. Network paths are never purged —
+        an error is thrown instead to protect the source image on a network share.
     .PARAMETER all
-        If set, all WIM files will be dismounted, instead of NAME Parameter.
+        If set, all mounted WIM files will be dismounted, instead of the File parameter. VHDX images are not included.
 
     .EXAMPLE
-        Dismount-WIM -Name "PDC_20XX" -purge
-        Dismount-WIM -all
+        Dismount-DeploymentImage -File 'C:\Temp\PDC_20XX.vhdx' -purge
+        Dismount-DeploymentImage -all
 
     .NOTES
         Autor: Timon Först
         Datum: 16.04.2025
 
-        Formally this was function was called Dismount-ADSKwim, but this was not a good name.
+        Formally this was function was called Dismount-ADSKwim and later Dismount-WIM (still works as an alias).
    #>
+    [Alias('Dismount-WIM')]
     [CmdletBinding(SupportsShouldProcess = $true)]
     param (
         [Parameter()]
@@ -2113,17 +2212,21 @@ function Dismount-WIM {
     )
     begin {
         if (-not $PSBoundParameters.ContainsKey('File') -or $null -eq $File) {
-            $wimFileVar = Get-Variable -Name 'wimFile' -Scope Global -ErrorAction SilentlyContinue
-            if ($wimFileVar) { $File = $wimFileVar.Value }
+            $imageFileVar = Get-Variable -Name 'imageFile' -Scope Global -ErrorAction SilentlyContinue
+            if ($imageFileVar) { $File = $imageFileVar.Value }
         }
         if ($File -is [string]) {
             $File = Get-Item -Path $File
         }
+        # -Purge from the install context also applies to a plain Dismount-DeploymentImage (the ModeHandler dismounts before the workflow's finally block)
+        $purgeVar = Get-Variable -Name 'Purge' -Scope Global -ErrorAction SilentlyContinue
+        $noDownloadVar = Get-Variable -Name 'NoDownload' -Scope Global -ErrorAction SilentlyContinue
+        $contextPurge = $purgeVar -and [bool]$purgeVar.Value -and -not ($noDownloadVar -and [bool]$noDownloadVar.Value)
     }
     process {
 
         if (-not $File -and -not $all.IsPresent ) {
-            Write-InstallLog -text 'No WIM specified to dismount' -Fail
+            Write-InstallLog -text 'No image specified to dismount' -Fail
             return
         }
 
@@ -2133,13 +2236,19 @@ function Dismount-WIM {
         }
         elseif ($WhatIfPreference) {
             if ($all.IsPresent) {
-                $images = @([pscustomobject]@{ ImagePath = 'ALL_MOUNTED_WIMS'; Path = '<all-mounted-paths>' })
+                $images = @([pscustomobject]@{ ImagePath = 'ALL_MOUNTED_IMAGES'; Path = '<all-mounted-paths>' })
             }
             else {
                 $displayPath = if ($File.PSObject.Properties['FullName']) { $File.FullName } else { "$File" }
                 $mountPathVar = Get-Variable -Name 'mountPath' -Scope Global -ErrorAction SilentlyContinue
                 $resolvedMountPath = if ($mountPathVar) { $mountPathVar.Value } else { $null }
                 $images = @([pscustomobject]@{ ImagePath = $displayPath; Path = $resolvedMountPath })
+            }
+        }
+        elseif (-not $all.IsPresent -and "$File" -like '*.vhdx') {
+            $mountPathVar = Get-Variable -Name 'mountPath' -Scope Global -ErrorAction SilentlyContinue
+            if ((Get-DiskImage -ImagePath "$File").Attached) {
+                $images = @([pscustomobject]@{ ImagePath = "$File"; Path = $(if ($mountPathVar) { $mountPathVar.Value }) })
             }
         }
         else {
@@ -2152,63 +2261,74 @@ function Dismount-WIM {
         }
 
         if ($images.Count -eq 0) {
-            Write-InstallLog -text 'No mounted WIM images found to dismount' -Info
+            Write-InstallLog -text 'No mounted images found to dismount' -Info
             return
         }
 
         foreach ($image in $images) {
-            Write-InstallLog -text "Dismounting WIM $($image.ImagePath)" -Info
+            Write-InstallLog -text "Dismounting image $($image.ImagePath)" -Info
+            $isVhdx = $image.ImagePath -like '*.vhdx'
             try {
-                if ($PSCmdlet.ShouldProcess($image.ImagePath, 'Dismount WIM')) {
+                if ($PSCmdlet.ShouldProcess($image.ImagePath, 'Dismount image')) {
                     if ($WhatIfPreference) {
                         continue
                     }
 
-                    $dismountErrors = @()
-                    Dismount-WindowsImage -Path $image.Path -Discard -ErrorAction SilentlyContinue -ErrorVariable dismountErrors | Out-Null
-
                     $hasIncompleteUnmountWarning = $false
-                    if ($dismountErrors.Count -gt 0) {
-                        $dismountErrorMessages = @($dismountErrors | ForEach-Object { $_.ToString() })
-                        $hasIncompleteUnmountWarning = @($dismountErrorMessages | Where-Object { $_ -match 'could not be completely unmounted' }).Count -gt 0
+                    if ($isVhdx) {
+                        Dismount-DiskImage -ImagePath $image.ImagePath -ErrorAction Stop | Out-Null
+                    }
+                    else {
+                        $dismountErrors = @()
+                        Dismount-WindowsImage -Path $image.Path -Discard -ErrorAction SilentlyContinue -ErrorVariable dismountErrors | Out-Null
 
-                        if (-not $hasIncompleteUnmountWarning) {
-                            throw ($dismountErrors[0])
+                        if ($dismountErrors.Count -gt 0) {
+                            $dismountErrorMessages = @($dismountErrors | ForEach-Object { $_.ToString() })
+                            $hasIncompleteUnmountWarning = @($dismountErrorMessages | Where-Object { $_ -match 'could not be completely unmounted' }).Count -gt 0
+
+                            if (-not $hasIncompleteUnmountWarning) {
+                                throw ($dismountErrors[0])
+                            }
+
+                            Write-InstallLog -text "Image $($image.ImagePath) could not be completely unmounted and will be ignored; cleanup will run after reboot if needed" -Info
+                            Register-WIMDismountTask
                         }
-
-                        Write-InstallLog -text "WIM $($image.ImagePath) could not be completely unmounted and will be ignored; cleanup will run after reboot if needed" -Info
-                        Register-WIMDismountTask
                     }
 
                     if ($hasIncompleteUnmountWarning) {
                         continue
                     }
 
-                    Write-InstallLog -text "WIM $($image.ImagePath) dismounted" -Info
+                    Write-InstallLog -text "Image $($image.ImagePath) dismounted" -Info
 
-                    if ($purge.IsPresent) {
-                        # delete local wim file only — never delete a network source
-                        $isNetworkPath = $image.ImagePath -match '^\\\\[a-zA-Z0-9._-]+'
+                    $isNetworkPath = $image.ImagePath -match '^\\\\[a-zA-Z0-9._-]+'
+                    if ($purge.IsPresent -or ($contextPurge -and -not $isNetworkPath)) {
+                        # delete local image file only — never delete a network source
                         if ($isNetworkPath) {
-                            Write-InstallLog -text "Refused to delete WIM source '$($image.ImagePath)': detected as network path. Use -NoDownload with -Purge only when the WIM has been copied locally first." -Fail
-                            throw "Cannot purge WIM file from network path '$($image.ImagePath)'. Ensure the WIM is copied locally (without -NoDownload) before using -Purge."
+                            Write-InstallLog -text "Refused to delete image source '$($image.ImagePath)': detected as network path. Use -NoDownload with -Purge only when the image has been copied locally first." -Fail
+                            throw "Cannot purge image file from network path '$($image.ImagePath)'. Ensure the image is copied locally (without -NoDownload) before using -Purge."
                         }
-                        if ($PSCmdlet.ShouldProcess($image.ImagePath, 'Delete WIM file')) {
+                        if ($PSCmdlet.ShouldProcess($image.ImagePath, 'Delete image file')) {
                             Remove-Item -Path $image.ImagePath -Force
-                            Write-InstallLog -text "WIM $($image.ImagePath) locally deleted" -Info
+                            Write-InstallLog -text "Image $($image.ImagePath) locally deleted" -Info
                         }
                     }
-                    if ($PSCmdlet.ShouldProcess($image.Path, 'Delete mount directory')) {
+                    if (-not $isVhdx -and $PSCmdlet.ShouldProcess($image.Path, 'Delete mount directory')) {
                         Remove-Item -Path $image.Path -Force -Recurse
                     }
                 }
             }
             catch {
-                # Re-throw non-WIM dismount errors (e.g. network path purge protection)
-                if ($_.Exception.Message -like '*Cannot purge WIM file from network path*') {
+                # Re-throw non-dismount errors (e.g. network path purge protection)
+                if ($_.Exception.Message -like '*Cannot purge image file from network path*') {
                     throw $_
                 }
-                Register-WIMDismountTask
+                if ($isVhdx) {
+                    Write-InstallLog -text "Image $($image.ImagePath) could not be dismounted: $($_.Exception.Message)" -Fail
+                }
+                else {
+                    Register-WIMDismountTask
+                }
             }
 
         }
@@ -2240,7 +2360,7 @@ function Register-WIMDismountTask {
     param ()
 
     ## failed to cleanly dismount, so set a task to cleanup after reboot
-    Write-InstallLog -text "WIM $WIM failed to dismounted" -Fail
+    Write-InstallLog -text "WIM $Image failed to dismounted" -Fail
 
     $STAction = New-ScheduledTaskAction `
         -Execute 'Powershell.exe' `
@@ -2401,4 +2521,4 @@ function Get-AppLogError {
 
     }
 }
-Export-ModuleMember -Function *
+Export-ModuleMember -Function * -Alias *

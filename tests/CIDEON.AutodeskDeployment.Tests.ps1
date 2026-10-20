@@ -6,7 +6,7 @@ BeforeDiscovery {
 }
 
 BeforeAll {
-    $modulePath = Join-Path -Path $PSScriptRoot -ChildPath 'CIDEON.AutodeskDeployment.psm1'
+    $modulePath = Join-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -ChildPath 'CIDEON.AutodeskDeployment.psm1'
     Import-Module -Name $modulePath -Force
 }
 
@@ -39,7 +39,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 $Global:Version = '26'
                 $Global:LocalFolder = Join-Path -Path $TestDrive -ChildPath 'Temp'
                 $Global:Path = $TestDrive
-                $Global:WIM = 'PDC_2026'
+                $Global:Image = 'PDC_2026'
                 $Global:Files = @('Collection')
                 $Global:Mode = 'Install'
                 $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($false)
@@ -55,7 +55,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 $Global:Version = '2026'
                 $Global:LocalFolder = Join-Path -Path $TestDrive -ChildPath 'Temp'
                 $Global:Path = $TestDrive
-                $Global:WIM = 'PDC_2026'
+                $Global:Image = 'PDC_2026'
                 $Global:Files = @('Collection')
                 $Global:Mode = 'Install'
                 $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($false)
@@ -66,7 +66,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Test-Path -MockWith { $true } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Get-ChildItem -MockWith { @() } -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Invoke-DeploymentWorkflow -ModeHandler { } } | Should -Throw '*No WIM file matching*'
+                { Invoke-DeploymentWorkflow -ModeHandler { } } | Should -Throw '*No image file matching*'
             }
         }
 
@@ -75,7 +75,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 $Global:Version = '2026'
                 $Global:LocalFolder = Join-Path -Path $TestDrive -ChildPath 'Temp'
                 $Global:Path = $TestDrive
-                $Global:WIM = 'PDC_2026'
+                $Global:Image = 'PDC_2026'
                 $Global:Files = @('Collection')
                 $Global:Mode = 'Install'
                 $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($false)
@@ -83,7 +83,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 $Global:Logging = [System.Management.Automation.SwitchParameter]::new($false)
                 $script:modeHandlerRan = $false
 
-                $wimFile = [pscustomobject]@{
+                $imageFile = [pscustomobject]@{
                     Name     = 'PDC_2026.wim'
                     FullName = (Join-Path -Path $TestDrive -ChildPath 'PDC_2026.wim')
                 }
@@ -91,9 +91,9 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Set-InstallContext -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Test-Path -MockWith { $true } -ModuleName 'CIDEON.AutodeskDeployment'
-                Mock -CommandName Get-ChildItem -MockWith { $wimFile } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-ChildItem -MockWith { $imageFile } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Get-AppLogError -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
-                Mock -CommandName Dismount-WIM -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Dismount-DeploymentImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
                 Invoke-DeploymentWorkflow -ModeHandler {
                     $script:modeHandlerRan = $true
@@ -101,9 +101,9 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
 
                 $script:modeHandlerRan | Should -BeTrue
                 Should -Invoke Set-InstallContext -Times 1 -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
-                    $Context.ContainsKey('wimFile') -and $Context.ContainsKey('mountPath') -and $Context.ContainsKey('ConfigFullFilenames')
+                    $Context.ContainsKey('imageFile') -and $Context.ContainsKey('mountPath') -and $Context.ContainsKey('ConfigFullFilenames')
                 }
-                Should -Invoke Dismount-WIM -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                Should -Invoke Dismount-DeploymentImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
             }
         }
     }
@@ -127,9 +127,9 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
         }
     }
 
-    Context 'Copy-WIM' {
+    Context 'Copy-DeploymentImage' {
         AfterEach {
-            Remove-Variable -Name wimFile, LocalFolder, NoDownload -Scope Global -ErrorAction SilentlyContinue
+            Remove-Variable -Name imageFile, LocalFolder, NoDownload -Scope Global -ErrorAction SilentlyContinue
         }
         It 'skips local copy when NoDownload is set and updates context with source file' {
             InModuleScope CIDEON.AutodeskDeployment {
@@ -138,7 +138,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                     FullName = 'D:\Share\PDC_2026.wim'
                 }
 
-                $Global:wimFile = $sourceFile
+                $Global:imageFile = $sourceFile
                 $Global:LocalFolder = 'C:\Temp'
                 $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($true)
 
@@ -151,10 +151,10 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
 
                 Mock -CommandName Set-InstallContext -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                Copy-WIM
+                Copy-DeploymentImage
 
                 Should -Invoke Set-InstallContext -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
-                    $Context.wimFile.FullName -eq 'D:\Share\PDC_2026.wim'
+                    $Context.imageFile.FullName -eq 'D:\Share\PDC_2026.wim'
                 }
             }
         }
@@ -170,18 +170,18 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Set-Content -Path $sourcePath -Value 'unit-test-wim'
                 $sourceFile = Get-Item -Path $sourcePath
 
-                $Global:wimFile = $sourceFile
+                $Global:imageFile = $sourceFile
                 $Global:LocalFolder = $targetFolder
                 $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($false)
 
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Set-InstallContext -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                Copy-WIM -File $sourceFile -Folder $targetFolder
+                Copy-DeploymentImage -File $sourceFile -Folder $targetFolder
 
                 Test-Path -Path (Join-Path -Path $targetFolder -ChildPath 'PDC_2026.wim') | Should -BeTrue
                 Should -Invoke Set-InstallContext -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
-                    $Context.wimFile.FullName -eq (Join-Path -Path $targetFolder -ChildPath 'PDC_2026.wim')
+                    $Context.imageFile.FullName -eq (Join-Path -Path $targetFolder -ChildPath 'PDC_2026.wim')
                 }
             }
         }
@@ -326,13 +326,13 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
         }
     }
 
-    Context 'Mount-WIM' {
+    Context 'Mount-DeploymentImage' {
         It 'logs info and returns early in WhatIf mode when not running as admin' -Skip:$isElevated {
             InModuleScope CIDEON.AutodeskDeployment {
                 Mock -CommandName Write-InstallLog -MockWith {}
                 $originalWhatIf = $WhatIfPreference
                 $WhatIfPreference = $true
-                Mount-WIM -File ([pscustomobject]@{ FullName = 'C:\fake.wim' }) -Path 'C:\fakeMount' -WhatIf:$true
+                Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.wim' }) -Path 'C:\fakeMount' -WhatIf:$true
                 Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
                     $text -like '*requires elevated rights*' -and $Info.IsPresent
                 }
@@ -349,7 +349,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Mount-WIM -File $fileObj -Path 'C:\fakeMount' } | Should -Not -Throw
+                { Mount-DeploymentImage -File $fileObj -Path 'C:\fakeMount' } | Should -Not -Throw
 
                 Should -Invoke Mount-WindowsImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
                     $ImagePath -eq 'C:\fake.wim' -and $Path -eq 'C:\fakeMount'
@@ -366,7 +366,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Mount-WIM -File $fileObj -Path 'C:\fakeMount' } | Should -Throw '*ConfigFile*does not exist*'
+                { Mount-DeploymentImage -File $fileObj -Path 'C:\fakeMount' } | Should -Throw '*ConfigFile*does not exist*'
             }
         }
 
@@ -394,7 +394,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
         #         Mock -CommandName Mount-WindowsImage -MockWith {}
         #         Mock -CommandName Write-InstallLog -MockWith {}
 
-        #         Mount-WIM -File 'C:\\fake.wim' -Path 'C:\\fakeMount'
+        #         Mount-DeploymentImage -File 'C:\\fake.wim' -Path 'C:\\fakeMount'
 
         #         Should -Invoke Get-Item -Times 1 -Exactly
         #         Should -Invoke Mount-WindowsImage -Times 1 -Exactly
@@ -408,7 +408,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
         #         Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
         #         Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
         #
-        #         Mount-WIM -File 'C:\\fake.wim' -Path 'C:\\fakeMount'
+        #         Mount-DeploymentImage -File 'C:\\fake.wim' -Path 'C:\\fakeMount'
         #
         #         Should -Invoke Get-Item -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
         #         Should -Invoke Mount-WindowsImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
@@ -416,13 +416,13 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
         # }
     }
 
-    Context 'Dismount-WIM' {
+    Context 'Dismount-DeploymentImage' {
         It 'returns gracefully when no mounted images found' {
             InModuleScope CIDEON.AutodeskDeployment {
                 Mock -CommandName Get-WindowsImage -MockWith { @() } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Dismount-WIM -File ([pscustomobject]@{ FullName = 'C:\fake.wim' }) } | Should -Not -Throw
+                { Dismount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.wim' }) } | Should -Not -Throw
             }
         }
 
@@ -438,7 +438,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Remove-Item -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Register-WIMDismountTask -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Dismount-WIM -File $mountedImage -Purge } | Should -Not -Throw
+                { Dismount-DeploymentImage -File $mountedImage -Purge } | Should -Not -Throw
 
                 Should -Invoke Dismount-WindowsImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
                     $Path -eq 'C:\mount'
@@ -460,7 +460,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Register-WIMDismountTask -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Dismount-WIM -File $mountedImage } | Should -Not -Throw
+                { Dismount-DeploymentImage -File $mountedImage } | Should -Not -Throw
 
                 Should -Invoke Register-WIMDismountTask -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
             }
@@ -478,9 +478,203 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Remove-Item -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Register-WIMDismountTask -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Dismount-WIM -File $networkImage -Purge } | Should -Throw '*Cannot purge WIM file from network path*'
+                { Dismount-DeploymentImage -File $networkImage -Purge } | Should -Throw '*Cannot purge image file from network path*'
 
                 Should -Invoke -CommandName Remove-Item -Times 0 -ModuleName 'CIDEON.AutodeskDeployment'
+            }
+        }
+    }
+
+    Context 'Image formats (.vhdx and .wim)' {
+        AfterEach {
+            Remove-Variable -Name imageFile, LocalFolder, NoDownload -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It 'keeps the old WIM function names as aliases' {
+            (Get-Command -Name Copy-WIM).ResolvedCommand.Name | Should -Be 'Copy-DeploymentImage'
+            (Get-Command -Name Mount-WIM).ResolvedCommand.Name | Should -Be 'Mount-DeploymentImage'
+            (Get-Command -Name Dismount-WIM).ResolvedCommand.Name | Should -Be 'Dismount-DeploymentImage'
+        }
+
+        It 'workflow uses the .vhdx when both a .vhdx and a .wim with the same name exist' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $Global:Version = '2026'
+                $Global:LocalFolder = Join-Path -Path $TestDrive -ChildPath 'Temp'
+                $Global:Path = $TestDrive
+                $Global:Image = 'PDC_2026'
+                $Global:Files = @('Collection')
+                $Global:Mode = 'Install'
+                $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($false)
+                $Global:Purge = [System.Management.Automation.SwitchParameter]::new($false)
+                $Global:Logging = [System.Management.Automation.SwitchParameter]::new($false)
+                foreach ($extension in '.wim', '.vhdx') {
+                    Set-Content -Path (Join-Path -Path $TestDrive -ChildPath "PDC_2026$extension") -Value 'stub'
+                }
+                $script:contextImages = @()
+
+                Mock -CommandName Set-InstallContext -MockWith { if ($Context.ContainsKey('imageFile')) { $script:contextImages += $Context.imageFile.Name } } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-AppLogError -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Dismount-DeploymentImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Invoke-DeploymentWorkflow -ModeHandler { }
+
+                $script:contextImages | Should -Be @('PDC_2026.vhdx')
+            }
+        }
+
+        It 'workflow falls back to the .wim when no .vhdx exists' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $Global:Version = '2026'
+                $Global:LocalFolder = Join-Path -Path $TestDrive -ChildPath 'Temp'
+                $Global:Path = Join-Path -Path $TestDrive -ChildPath 'wimonly'
+                $Global:Image = 'PDC_2026'
+                $Global:Files = @('Collection')
+                $Global:Mode = 'Install'
+                $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($false)
+                $Global:Purge = [System.Management.Automation.SwitchParameter]::new($false)
+                $Global:Logging = [System.Management.Automation.SwitchParameter]::new($false)
+                New-Item -Path $Global:Path -ItemType Directory -Force | Out-Null
+                Set-Content -Path (Join-Path -Path $Global:Path -ChildPath 'PDC_2026.wim') -Value 'stub'
+                $script:contextImages = @()
+
+                Mock -CommandName Set-InstallContext -MockWith { if ($Context.ContainsKey('imageFile')) { $script:contextImages += $Context.imageFile.Name } } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-AppLogError -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Dismount-DeploymentImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Invoke-DeploymentWorkflow -ModeHandler { }
+
+                $script:contextImages | Should -Be @('PDC_2026.wim')
+            }
+        }
+
+        It 'Copy-DeploymentImage refuses NoDownload for a .vhdx' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $Global:NoDownload = [System.Management.Automation.SwitchParameter]::new($true)
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                {
+                    Copy-DeploymentImage -File ([pscustomobject]@{ Name = 'PDC_2026.vhdx'; FullName = 'D:\Share\PDC_2026.vhdx' }) -Folder 'C:\Temp'
+                } | Should -Throw '*not supported for .vhdx*'
+            }
+        }
+
+        It 'Mount-DeploymentImage attaches a .vhdx with a drive letter and points mountPath and the config paths there' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $Global:mountPath = 'C:\fakeMount'
+                $Global:ConfigFullFilenames = @('C:\fakeMount\Image\Collection.xml')
+                Mock -CommandName Mount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                # Get-Disk binds Number by property name, Get-Partition takes the CIM disk by value: the mocks must be pipeline compatible
+                $script:cimDisk = New-CimInstance -ClassName MSFT_Disk -Namespace 'ROOT/Microsoft/Windows/Storage' -ClientOnly -Property @{ Number = [uint32]7 }
+                Mock -CommandName Get-DiskImage -MockWith { [pscustomobject]@{ ImagePath = 'C:\fake.vhdx'; Number = [uint32]7; Attached = $false } } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Disk -MockWith { $script:cimDisk } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Dismount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Partition -MockWith {
+                    [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 1; Size = 16MB; DriveLetter = [char]0 }
+                    [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 2; Size = 40GB; DriveLetter = 'E' }
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Add-PartitionAccessPath -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Test-Path -MockWith { $true } -ModuleName 'CIDEON.AutodeskDeployment'
+
+                try {
+                    # the config file does not exist on the fake drive: the error message proves the path was re-pointed to the drive letter
+                    { Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount' } |
+                        Should -Throw '*E:\Image\Collection.xml does not exist*'
+
+                    Should -Invoke Mount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
+                        $ImagePath -eq 'C:\fake.vhdx' -and -not $NoDriveLetter -and $Access -eq 'ReadWrite'
+                    }
+                    Should -Invoke Add-PartitionAccessPath -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                    Should -Invoke Mount-WindowsImage -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                    $Global:mountPath | Should -Be 'E:\'
+                    $Global:ConfigFullFilenames | Should -Be @('E:\Image\Collection.xml')
+                }
+                finally {
+                    Remove-Variable -Name mountPath, ConfigFullFilenames -Scope Global -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'Mount-ImageFile assigns a drive letter when the .vhdx data partition has none' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $script:cimDisk = New-CimInstance -ClassName MSFT_Disk -Namespace 'ROOT/Microsoft/Windows/Storage' -ClientOnly -Property @{ Number = [uint32]7 }
+                $script:partitionCalls = 0
+                Mock -CommandName Get-DiskImage -MockWith { [pscustomobject]@{ ImagePath = 'C:\fake.vhdx'; Number = [uint32]7; Attached = $false } } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Disk -MockWith { $script:cimDisk } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Mount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Partition -MockWith {
+                    $script:partitionCalls++
+                    [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 2; Size = 40GB; DriveLetter = $(if ($script:partitionCalls -gt 1) { 'F' } else { [char]0 }) }
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Add-PartitionAccessPath -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Mount-ImageFile -ImagePath 'C:\fake.vhdx' | Should -Be 'F:\'
+
+                Should -Invoke Add-PartitionAccessPath -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
+                    $DiskNumber -eq 7 -and $PartitionNumber -eq 2 -and $AssignDriveLetter
+                }
+            }
+        }
+        It 'Mount-DeploymentImage dismounts a .vhdx that is still attached before mounting it again' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $Global:ConfigFullFilenames = @()
+                $script:cimDisk = New-CimInstance -ClassName MSFT_Disk -Namespace 'ROOT/Microsoft/Windows/Storage' -ClientOnly -Property @{ Number = [uint32]7 }
+                Mock -CommandName Get-DiskImage -MockWith { [pscustomobject]@{ ImagePath = 'C:\fake.vhdx'; Number = [uint32]7; Attached = $true } } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Disk -MockWith { $script:cimDisk } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Get-Partition -MockWith { [pscustomobject]@{ DiskNumber = 7; PartitionNumber = 2; Size = 40GB; DriveLetter = 'E' } } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Dismount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Mount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Add-PartitionAccessPath -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                try {
+                    Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount'
+
+                    Should -Invoke Dismount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $ImagePath -eq 'C:\fake.vhdx' }
+                    Should -Invoke Mount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                }
+                finally {
+                    Remove-Variable -Name mountPath -Scope Global -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'Dismount-DeploymentImage dismounts a .vhdx with Dismount-DiskImage, purges it and never registers the WIM cleanup task' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $mountedImage = [pscustomobject]@{ ImagePath = 'C:\fake.vhdx'; Path = 'C:\mount' }
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Dismount-DiskImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Dismount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Remove-Item -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Register-WIMDismountTask -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Dismount-DeploymentImage -File $mountedImage -Purge } | Should -Not -Throw
+
+                Should -Invoke Dismount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $ImagePath -eq 'C:\fake.vhdx' }
+                Should -Invoke Dismount-WindowsImage -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                # only the image file is deleted; a VHDX has no mount directory (its drive letter is gone after the dismount)
+                Should -Invoke Remove-Item -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $Path -eq 'C:\fake.vhdx' }
+                Should -Invoke Register-WIMDismountTask -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+            }
+        }
+
+        It 'Dismount-DeploymentImage keeps the mount directory when a .vhdx cannot be dismounted' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $mountedImage = [pscustomobject]@{ ImagePath = 'C:\fake.vhdx'; Path = 'C:\mount' }
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Dismount-DiskImage -MockWith { throw 'busy' } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Remove-Item -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Register-WIMDismountTask -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Dismount-DeploymentImage -File $mountedImage } | Should -Not -Throw
+
+                # a recursive delete of the mount directory would otherwise delete the files inside the still attached VHDX
+                Should -Invoke Remove-Item -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                Should -Invoke Register-WIMDismountTask -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment'
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $Fail -and $text -like '*could not be dismounted*' }
             }
         }
     }
@@ -537,14 +731,15 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
-        It 'Install-AutodeskDeployment accepts explicit config context without throwing' {
+        It 'Install-AutodeskDeployment redirects the installer log and starts Installer.exe from the mounted image' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $rootPath = Join-Path -Path $TestDrive -ChildPath 'deployment'
                 $imagePath = Join-Path -Path $rootPath -ChildPath 'Image'
                 New-Item -Path $imagePath -ItemType Directory -Force | Out-Null
 
                 $configPath = Join-Path -Path $imagePath -ChildPath 'Collection.xml'
-                Set-Content -Path $configPath -Value '<Collection />'
+                # a real Collection.xml has child nodes; PowerShell returns '' for an empty <Collection />
+                Set-Content -Path $configPath -Value '<Collection><LoggingSettings><Logging>true</Logging><Path>C:\temp\PDC_2026\log\PDC_2026.log</Path></LoggingSettings></Collection>'
 
                 $script:startProcessCall = $null
 
@@ -553,7 +748,9 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Start-Process -MockWith {
                     param($FilePath, $ArgumentList)
                     $script:startProcessCall = @{ FilePath = $FilePath; ArgumentList = $ArgumentList }
-                    [pscustomobject]@{ Id = 1234 }
+                    $process = [pscustomobject]@{ Id = 1234; ExitCode = 0 }
+                    $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {}
+                    $process
                 } -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Wait-Process -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
@@ -565,6 +762,37 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Should -Invoke Write-InstallLog -ParameterFilter {
                     $text -notmatch 'Deplyoment' # original typo must not appear
                 }
+                Should -Invoke Write-InstallLog -ParameterFilter { $Fail } -Times 0 -Exactly
+
+                # the installer log must be redirected into the log folder
+                ([xml](Get-Content -Path $configPath -Raw)).Collection.LoggingSettings.Path |
+                    Should -Be (Join-Path -Path $TestDrive -ChildPath 'Install-ADSK-Deployment-PDC_2026.log')
+
+                $script:startProcessCall.FilePath | Should -Be (Join-Path -Path $imagePath -ChildPath 'Installer.exe')
+                $script:startProcessCall.ArgumentList | Should -BeLike "*-o `"$configPath`""
+            }
+        }
+
+        It 'Install-AutodeskDeployment logs a failure when Installer.exe exits with a non-zero code' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $rootPath = Join-Path -Path $TestDrive -ChildPath 'deployment-fail'
+                $imagePath = Join-Path -Path $rootPath -ChildPath 'Image'
+                New-Item -Path $imagePath -ItemType Directory -Force | Out-Null
+                $configPath = Join-Path -Path $imagePath -ChildPath 'Collection.xml'
+                Set-Content -Path $configPath -Value '<Collection><Name>PDC</Name></Collection>'
+
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Write-InstallProgress -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Start-Process -MockWith {
+                    $process = [pscustomobject]@{ Id = 1234; ExitCode = 1603 }
+                    $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {}
+                    $process
+                } -ModuleName 'CIDEON.AutodeskDeployment'
+                Mock -CommandName Wait-Process -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Install-AutodeskDeployment -Path $rootPath -ConfigFile @($configPath) -LogFolder $TestDrive -DeploymentName 'PDC_2026'
+
+                Should -Invoke Write-InstallLog -ParameterFilter { $Fail -and $text -match 'exit code 1603' } -Times 1 -Exactly
             }
         }
 
@@ -799,7 +1027,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
         }
     }
 
-    Context 'Dismount-WIM (additional)' {
+    Context 'Dismount-DeploymentImage (additional)' {
         AfterEach {
             Remove-Variable -Name mountPath -Scope Global -ErrorAction SilentlyContinue
         }
@@ -814,11 +1042,11 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 # mock is defined so assertions stay consistent
                 Mock -CommandName Dismount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Dismount-WIM -File $fakeWim -WhatIf } | Should -Not -Throw
+                { Dismount-DeploymentImage -File $fakeWim -WhatIf } | Should -Not -Throw
 
-                # Verify the informational log ("Dismounting WIM") is written for each image
+                # Verify the informational log ("Dismounting image") is written for each image
                 Should -Invoke Write-InstallLog -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
-                    $text -like '*Dismounting WIM*'
+                    $text -like '*Dismounting image*'
                 }
             }
         }
@@ -982,7 +1210,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
     Context 'Register-WIMDismountTask' {
         It 'does not call Register-ScheduledTask in WhatIf mode' {
             InModuleScope CIDEON.AutodeskDeployment {
-                $script:WIM = 'PDC_2026'
+                $script:Image = 'PDC_2026'
 
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName New-ScheduledTaskAction -MockWith {
@@ -1001,7 +1229,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
 
         It 'registers CleanupWIM task with SYSTEM account when ShouldProcess is confirmed' {
             InModuleScope CIDEON.AutodeskDeployment {
-                $script:WIM = 'PDC_2026'
+                $script:Image = 'PDC_2026'
 
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 # Call the real ScheduledTasks cmdlets directly (bypassing the Pester mock) to
