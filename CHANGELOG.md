@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [3.1.0] - 2026-10-20
+### Added
+- `Set-AutodeskDeployment -Remove` also removes `<Application>` entries (name pattern, namespace independent) when used with `-xmlFileName 'setup.xml'`, so a product can be installed without Vault Data Standard: `Set-AutodeskDeployment -xmlFileName 'setup.xml' -Remove 'Vault Data Standard'` (example in `Install-ADSK.ps1`)
+### Changed
+- `Mount-DeploymentImage` no longer requires the config files (`Collection.xml`) and does not stop the workflow when they are missing, so images without an Autodesk deployment can be installed. The config files are only checked by `Install-AutodeskDeployment` (logs the missing file and skips it).
+
 ## [3.0.0] - 2026-10-20
 ### Security
 - `Copy-Local.ps1` now pins the release certificate and the module signer to the same thumbprint allowlist as `Install-ADSK.ps1` (previously it only checked for `Status -eq Valid`, so any certificate from the release could be added to `CurrentUser\TrustedPublisher` and any validly signed module was imported). The downloaded certificate is checked before it is added to the store; the local fallback module is checked the same way. If the certificate cannot be added to the store, a `NotTrusted`/`UnknownError` chain is accepted only when the signer thumbprint is pinned; `HashMismatch` is always rejected.

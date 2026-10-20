@@ -872,6 +872,8 @@ function Set-AutodeskDeployment {
 
     .DESCRIPTION
         Processes deployment product XML files and optionally removes language packs or specific packages.
+        With -xmlFileName 'setup.xml' -Remove also removes <Application> entries, e.g. to install Vault
+        without Vault Data Standard.
 
     .PARAMETER Path
         Path to the Autodesk deployment image folder.
@@ -880,7 +882,10 @@ function Set-AutodeskDeployment {
     .PARAMETER Language
         One or more language pack names to keep.
     .PARAMETER Remove
-        One or more package name patterns to remove.
+        One or more package (setup_ext.xml) or application (setup.xml) name patterns to remove.
+
+    .EXAMPLE
+        Set-AutodeskDeployment -xmlFileName 'setup.xml' -Remove 'Vault Data Standard'
 
     .NOTES
         Autor: Timon Först
@@ -977,7 +982,8 @@ function Set-AutodeskDeployment {
             foreach ($name in $Remove) {
                 # avoid XPath injection by not interpolating user input into XPath
                 # and instead filter the nodes in PowerShell.
-                $packages = @($xml.SelectNodes('//x:Package', $ns)) | Where-Object {
+                # setup_ext.xml lists <Package>, setup.xml lists <Application> (e.g. Vault Data Standard); setup.xml has no namespace
+                $packages = @($xml.SelectNodes('//*[local-name()="Package" or local-name()="Application"]')) | Where-Object {
                     $packageName = $_.GetAttribute('name')
                     $packageName -like "*$name*"
                 }
@@ -2065,6 +2071,9 @@ function Mount-DeploymentImage {
         cache is populated and the mount reference is stored in $script:InspectMount so that
         Invoke-DeploymentWorkflow can dismount it in its finally block.
 
+        The deployment config files (Collection.xml) are not required to mount: they are only checked by
+        Install-AutodeskDeployment, so images without an Autodesk deployment can be mounted too.
+
     .PARAMETER File
         System.IO.FileInfo or String (full path) of the image file.
 
@@ -2150,14 +2159,7 @@ function Mount-DeploymentImage {
                 }
                 Write-InstallLog -text "Image $($File.FullName) mounted to $Path" -Info
             }
-
-            # check if configfile exists
-            foreach ($ConfigFullFilename in $ConfigFullFilenames) {
-                if (-not [System.IO.File]::Exists($ConfigFullFilename)) {
-                    Write-InstallLog -text "ConfigFile $ConfigFullFilename does not exist" -Fail
-                    throw "ConfigFile $ConfigFullFilename does not exist"
-                }
-            }
+            # config files are not checked here: only Install-AutodeskDeployment needs them
         }
         catch {
             # every following step needs the mount: HardAbort stops the workflow instead of the ModeHandler trap continuing

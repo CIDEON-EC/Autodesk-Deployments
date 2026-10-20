@@ -307,6 +307,26 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
+        It 'removes an Application entry from a setup.xml without namespace' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup.xml'
+                @'
+<Setup>
+    <Applications>
+        <Application name="Vault Professional 2026 (Client)" />
+        <Application name="Vault Data Standard 2026" />
+    </Applications>
+</Setup>
+'@ | Set-Content -Path $xmlPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'setup.xml' -Remove 'Vault Data Standard'
+
+                $names = @(([xml](Get-Content $xmlPath)).Setup.Applications.Application.name)
+                $names | Should -Be @('Vault Professional 2026 (Client)')
+            }
+        }
+
         It 'leaves the xml file unchanged under -WhatIf' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_whatif.xml'
@@ -339,7 +359,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 $WhatIfPreference = $originalWhatIf
             }
         }
-        It 'mounts the WIM and validates required config files in normal mode' {
+        It 'mounts the WIM in normal mode' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $configPath = Join-Path -Path $TestDrive -ChildPath 'Collection.xml'
                 Set-Content -Path $configPath -Value '<Collection />'
@@ -357,7 +377,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
-        It 'throws when a required config file is missing after mount' {
+        It 'does not require a config file to mount (images without Autodesk deployment)' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $missingConfigPath = Join-Path -Path $TestDrive -ChildPath 'MissingCollection.xml'
                 $Global:ConfigFullFilenames = @($missingConfigPath)
@@ -366,7 +386,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Mount-DeploymentImage -File $fileObj -Path 'C:\fakeMount' } | Should -Throw '*ConfigFile*does not exist*'
+                { Mount-DeploymentImage -File $fileObj -Path 'C:\fakeMount' } | Should -Not -Throw
             }
         }
 
@@ -580,9 +600,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Test-Path -MockWith { $true } -ModuleName 'CIDEON.AutodeskDeployment'
 
                 try {
-                    # the config file does not exist on the fake drive: the error message proves the path was re-pointed to the drive letter
-                    { Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount' } |
-                        Should -Throw '*E:\Image\Collection.xml does not exist*'
+                    Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount'
 
                     Should -Invoke Mount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
                         $ImagePath -eq 'C:\fake.vhdx' -and -not $NoDriveLetter -and $Access -eq 'ReadWrite'
