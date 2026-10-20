@@ -339,6 +339,59 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
+        It 'does nothing and logs a note when neither -Language nor -Remove is given' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_noop.xml'
+                'this is not xml' | Set-Content -Path $xmlPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'setup_noop.xml' } | Should -Not -Throw
+
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like 'Nothing to do*' }
+            }
+        }
+
+        It 'rejects an xmlFileName that contains a path' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                { Set-AutodeskDeployment -Path $TestDrive -xmlFileName '..\evil.xml' -Remove 'x' } | Should -Throw
+                { Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'C:\evil.xml' -Remove 'x' } | Should -Throw
+            }
+        }
+
+        It 'logs a failure for an unreadable xml file and still processes the next file' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                'this is not xml' | Set-Content -Path (Join-Path $TestDrive 'bad.xml')
+                $goodPath = Join-Path $TestDrive 'good.xml'
+                '<Bundle><Package name="RemoveMe" /><Package name="KeepMe" /></Bundle>' | Set-Content -Path $goodPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'bad.xml', 'good.xml' -Remove 'RemoveMe' } | Should -Not -Throw
+
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like '*bad.xml*' -and $Fail.IsPresent }
+                @(([xml](Get-Content $goodPath)).Bundle.Package.name) | Should -Be @('KeepMe')
+            }
+        }
+
+        It 'never removes a core application, even when the -Remove pattern matches it' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_core.xml'
+                @'
+<Bundle>
+    <Applications>
+        <Application installAs="core" name="Vault Professional 2026 (Client)" />
+        <Application installAs="optional" name="Vault Data Standard 2026" />
+    </Applications>
+</Bundle>
+'@ | Set-Content -Path $xmlPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'setup_core.xml' -Remove 'Vault'
+
+                @(([xml](Get-Content $xmlPath)).Bundle.Applications.Application.name) | Should -Be @('Vault Professional 2026 (Client)')
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like '*core*Vault Professional*' }
+            }
+        }
+
         It 'leaves the xml file unchanged under -WhatIf' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_whatif.xml'

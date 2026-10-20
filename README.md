@@ -292,7 +292,7 @@ All functions live in `CIDEON.AutodeskDeployment.psm1`.
 | `Install-Update` | Installs updates from the Updates subfolder | - | `Path` |
 | `Install-AutodeskDeployment` | Installs the Autodesk deployment from the image subfolder | - | `Path` |
 | `Uninstall-AutodeskDeployment` | Uninstalls the Autodesk deployment | - | `Path`, `Product` |
-| `Set-AutodeskDeployment` | Removes language packs (`-Language`) or entries (`-Remove`) from `setup_ext.xml` (`<Package>`) or `setup.xml` (default: both files; `<Application>`, e.g. `-Remove 'Vault Data Standard'` installs Vault without Vault Data Standard) | - | `Path`, `xmlFileName`, `Language`, `Remove` |
+| `Set-AutodeskDeployment` | Removes language packs (`-Language`) or entries (`-Remove`) from `setup_ext.xml` (`<Package>`) or `setup.xml` (default: both files; core applications are never removed; `<Application>`, e.g. `-Remove 'Vault Data Standard'` installs Vault without Vault Data Standard) | - | `Path`, `xmlFileName`, `Language`, `Remove` |
 | `Install-CideonTool` | Installs Cideon tools from the Cideon subfolder | - | Various Cideon switches |
 | `Disable-VaultExtension` | Moves Vault extensions to disable them | - | `Filter`, `Version`, `Keep` |
 | `Get-RealUserName` | Gets the actual username when running as admin | - | - |

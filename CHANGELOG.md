@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Set-AutodeskDeployment -Remove` also removes `<Application>` entries of `setup.xml` (name pattern, namespace independent), so a product can be installed without Vault Data Standard: `Set-AutodeskDeployment -Remove 'Vault Data Standard'` (example in `Install-ADSK.ps1`). It logs a note when a pattern matches nothing.
 ### Changed
 - `Set-AutodeskDeployment -xmlFileName` is now a list and defaults to `setup_ext.xml` and `setup.xml`; a file missing in a product folder is skipped (previously a missing file caused an error).
+- `Set-AutodeskDeployment` checks its input: it does nothing (and logs a note) without `-Language`/`-Remove`, rejects an `-xmlFileName` that contains a path, logs a failure and continues with the next file when an XML file cannot be read, and never removes an `<Application installAs="core">` entry (logged as kept).
 - `Install-AutodeskDeployment` logs a failure instead of `Autodesk Products installed` when no config file was found.
 - `Mount-DeploymentImage` no longer requires the config files (`Collection.xml`) and does not stop the workflow when they are missing, so images without an Autodesk deployment can be installed. The config files are only checked by `Install-AutodeskDeployment` (logs the missing file and skips it).
 

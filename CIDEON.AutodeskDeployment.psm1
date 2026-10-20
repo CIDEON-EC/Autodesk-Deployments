@@ -880,7 +880,7 @@ function Set-AutodeskDeployment {
     .DESCRIPTION
         Processes deployment product XML files and optionally removes language packs or specific packages.
         -Remove also removes <Application> entries of setup.xml, e.g. to install Vault
-        without Vault Data Standard.
+        without Vault Data Standard. Core applications (installAs="core") are never removed.
 
     .PARAMETER Path
         Path to the Autodesk deployment image folder.
@@ -903,6 +903,7 @@ function Set-AutodeskDeployment {
         [Parameter(Mandatory = $false, HelpMessage = 'Path to the Autodesk Deployment')]
         [string]$Path = [System.IO.Path]::Combine($mountPath, 'image'),
         [Parameter(Mandatory = $false, HelpMessage = 'XML files to change in each product folder. Default is "setup_ext.xml" and "setup.xml"')]
+        [ValidateScript({ if ($_ -ne [System.IO.Path]::GetFileName($_)) { throw 'xmlFileName must be a file name without a path' }; $true })]
         [string[]]$xmlFileName = @('setup_ext.xml', 'setup.xml'),
         [Parameter(Mandatory = $false, HelpMessage = 'One or More Language Packs to keep. Name must be in English (e.g. German, Polish). It has to be available in the deployment. Default is "German"')]
         [string[]]$Language,
@@ -916,6 +917,11 @@ function Set-AutodeskDeployment {
     $Remove = @(@($Remove) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 
     $adskProducts = @()
+
+    if ($Language.Count -eq 0 -and $Remove.Count -eq 0) {
+        Write-InstallLog -text 'Nothing to do: neither -Language nor -Remove given' -Info
+        return
+    }
 
     if (-not (Test-Path -Path $Path)) {
         if ($WhatIfPreference) {
@@ -951,7 +957,13 @@ function Set-AutodeskDeployment {
             Write-InstallLog -text "Skipped $xmlPath (not found)" -Info
             continue
         }
-        [xml]$xml = Get-Content $xmlPath
+        try {
+            [xml]$xml = Get-Content -Path $xmlPath -Raw -ErrorAction Stop
+        }
+        catch {
+            Write-InstallLog -text "Could not read $xmlPath as XML: $($_.Exception.Message)" -Fail
+            continue
+        }
 
         Write-InstallLog -text "Change $xmlPath file" -Info
 
@@ -1006,6 +1018,10 @@ function Set-AutodeskDeployment {
                 foreach ($package in $packages) {
                     $removeMatched[$name] = $true
                     $packageName = $package.GetAttribute('name')
+                    if ($package.GetAttribute('installAs') -eq 'core') {
+                        Write-InstallLog -text "Kept core application $packageName in $xmlPath (matches '$name')" -Info
+                        continue
+                    }
                     if ($PSCmdlet.ShouldProcess("Remove package $packageName from $xmlPath")) {
                         Write-InstallLog -text "Package $packageName will be removed" -Info
                         $package.ParentNode.RemoveChild($package) | Out-Null
