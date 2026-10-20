@@ -292,7 +292,7 @@ All functions live in `CIDEON.AutodeskDeployment.psm1`.
 | `Install-Update` | Installs updates from the Updates subfolder | - | `Path` |
 | `Install-AutodeskDeployment` | Installs the Autodesk deployment from the image subfolder | - | `Path` |
 | `Uninstall-AutodeskDeployment` | Uninstalls the Autodesk deployment | - | `Path`, `Product` |
-| `Set-AutodeskDeployment` | Configures Autodesk deployment settings | - | - |
+| `Set-AutodeskDeployment` | Removes language packs (`-Language`) or entries (`-Remove`) from `setup_ext.xml` (`<Package>`) or `setup.xml` (default: both files; core applications are never removed; `<Application>`, e.g. `-Remove 'Vault Data Standard'` installs Vault without Vault Data Standard) | - | `Path`, `xmlFileName`, `Language`, `Remove` |
 | `Install-CideonTool` | Installs Cideon tools from the Cideon subfolder | - | Various Cideon switches |
 | `Disable-VaultExtension` | Moves Vault extensions to disable them | - | `Filter`, `Version`, `Keep` |
 | `Get-RealUserName` | Gets the actual username when running as admin | - | - |
@@ -306,7 +306,7 @@ All functions live in `CIDEON.AutodeskDeployment.psm1`.
 | `Set-CIDEONVariable` | Sets Cideon environment variables | - | `Version` |
 | `Rename-RegistryInstallationPath` | Renames registry installation paths | - | - |
 | `Copy-DeploymentImage` | Copies the image file (.vhdx or .wim) from the network share to the local machine. Former name `Copy-WIM` still works | `File` | `Folder` |
-| `Mount-DeploymentImage` | Mounts the image (.wim with `Mount-WindowsImage` into the specified folder, .vhdx with `Mount-DiskImage` to a drive letter; `mountPath` and the config paths then point to the drive root). In WhatIf mode it performs a read-only inspection mount. Former name `Mount-WIM` still works | `File` | `Path` |
+| `Mount-DeploymentImage` | Mounts the image (.wim with `Mount-WindowsImage` into the specified folder, .vhdx with `Mount-DiskImage` to a drive letter; `mountPath` and the config paths then point to the drive root). The config files (`Collection.xml`) are not checked here, only by `Install-AutodeskDeployment`. In WhatIf mode it performs a read-only inspection mount. Former name `Mount-WIM` still works | `File` | `Path` |
 | `Dismount-DeploymentImage` | Dismounts the image (.wim or .vhdx) and removes the mount folder (.wim only). Former name `Dismount-WIM` still works | `File` | `purge`, `all` |
 | `Register-WIMDismountTask` | Registers the scheduled task that dismounts a WIM | - | - |
 | `Set-AutodeskUpdate` | Configures Autodesk update settings | One of `Enable`, `ShowOnly`, `Disable` | - |

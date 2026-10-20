@@ -708,6 +708,7 @@ function Install-AutodeskDeployment {
     }
 
     # call install autodesk deployment
+    $foundConfigs = 0
     foreach ($ConfigFullFilename in $configFiles) {
         Write-InstallLog -text "Started Installation of ConfigFile: $ConfigFullFilename" -Info
         $configName = Split-Path $ConfigFullFilename -Leaf
@@ -717,6 +718,7 @@ function Install-AutodeskDeployment {
             Write-InstallLog -text "Config file not found: $ConfigFullFilename" -Fail
             continue
         }
+        $foundConfigs++
 
         # enfore logging settings for deployment installere
         try {
@@ -780,7 +782,12 @@ function Install-AutodeskDeployment {
         }
     }
 
-    Write-InstallLog -text 'Autodesk Products installed' -Info
+    if ($foundConfigs -eq 0) {
+        Write-InstallLog -text 'No Autodesk deployment was installed: no config file found (check -Files)' -Fail
+    }
+    else {
+        Write-InstallLog -text 'Autodesk Products installed' -Info
+    }
 }
 function Uninstall-AutodeskDeployment {
 
@@ -872,15 +879,21 @@ function Set-AutodeskDeployment {
 
     .DESCRIPTION
         Processes deployment product XML files and optionally removes language packs or specific packages.
+        -Remove also removes <Application> entries of setup.xml, e.g. to install Vault
+        without Vault Data Standard. Core applications (installAs="core") are never removed.
 
     .PARAMETER Path
         Path to the Autodesk deployment image folder.
     .PARAMETER xmlFileName
-        XML file name to modify, default is "setup_ext.xml".
+        XML file names to modify in every product folder, default is "setup_ext.xml" and "setup.xml".
+        A file that does not exist in a product folder is skipped.
     .PARAMETER Language
         One or more language pack names to keep.
     .PARAMETER Remove
-        One or more package name patterns to remove.
+        One or more package (setup_ext.xml) or application (setup.xml) name patterns to remove.
+
+    .EXAMPLE
+        Set-AutodeskDeployment -Remove 'Vault Data Standard'
 
     .NOTES
         Autor: Timon Först
@@ -889,8 +902,9 @@ function Set-AutodeskDeployment {
     param (
         [Parameter(Mandatory = $false, HelpMessage = 'Path to the Autodesk Deployment')]
         [string]$Path = [System.IO.Path]::Combine($mountPath, 'image'),
-        [Parameter(Mandatory = $false, HelpMessage = 'XML file to change. Default is "setup_ext.xml"')]
-        [string]$xmlFileName = 'setup_ext.xml',
+        [Parameter(Mandatory = $false, HelpMessage = 'XML files to change in each product folder. Default is "setup_ext.xml" and "setup.xml"')]
+        [ValidateScript({ if ($_ -ne [System.IO.Path]::GetFileName($_)) { throw 'xmlFileName must be a file name without a path' }; $true })]
+        [string[]]$xmlFileName = @('setup_ext.xml', 'setup.xml'),
         [Parameter(Mandatory = $false, HelpMessage = 'One or More Language Packs to keep. Name must be in English (e.g. German, Polish). It has to be available in the deployment. Default is "German"')]
         [string[]]$Language,
         [Parameter(Mandatory = $false, HelpMessage = 'Remove a specified update')]
@@ -903,6 +917,11 @@ function Set-AutodeskDeployment {
     $Remove = @(@($Remove) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 
     $adskProducts = @()
+
+    if ($Language.Count -eq 0 -and $Remove.Count -eq 0) {
+        Write-InstallLog -text 'Nothing to do: neither -Language nor -Remove given' -Info
+        return
+    }
 
     if (-not (Test-Path -Path $Path)) {
         if ($WhatIfPreference) {
@@ -926,11 +945,25 @@ function Set-AutodeskDeployment {
         Write-InstallLog -text "Autodesk Products found: $($adskProducts.Name -join ', ')" -Info
     }
 
-    foreach ($adskProduct in $adskProducts) {
+    $removeMatched = @{}
+    $xmlPaths = @($adskProducts | ForEach-Object {
+            $productPath = $_.FullName
+            $xmlFileName | ForEach-Object { [System.IO.Path]::Combine($productPath, $_) }
+        })
+    foreach ($xmlPath in $xmlPaths) {
 
         # get xml file
-        $xmlPath = [System.IO.Path]::Combine($adskProduct.FullName, $xmlFileName)
-        [xml]$xml = Get-Content $xmlPath
+        if (-not (Test-Path -Path $xmlPath -PathType Leaf)) {
+            Write-InstallLog -text "Skipped $xmlPath (not found)" -Info
+            continue
+        }
+        try {
+            [xml]$xml = Get-Content -Path $xmlPath -Raw -ErrorAction Stop
+        }
+        catch {
+            Write-InstallLog -text "Could not read $xmlPath as XML: $($_.Exception.Message)" -Fail
+            continue
+        }
 
         Write-InstallLog -text "Change $xmlPath file" -Info
 
@@ -977,12 +1010,18 @@ function Set-AutodeskDeployment {
             foreach ($name in $Remove) {
                 # avoid XPath injection by not interpolating user input into XPath
                 # and instead filter the nodes in PowerShell.
-                $packages = @($xml.SelectNodes('//x:Package', $ns)) | Where-Object {
+                # setup_ext.xml lists <Package>, setup.xml lists <Application> (e.g. Vault Data Standard); setup.xml has no namespace
+                $packages = @($xml.SelectNodes('//*[local-name()="Package" or local-name()="Application"]')) | Where-Object {
                     $packageName = $_.GetAttribute('name')
                     $packageName -like "*$name*"
                 }
                 foreach ($package in $packages) {
+                    $removeMatched[$name] = $true
                     $packageName = $package.GetAttribute('name')
+                    if ($package.GetAttribute('installAs') -eq 'core') {
+                        Write-InstallLog -text "Kept core application $packageName in $xmlPath (matches '$name')" -Info
+                        continue
+                    }
                     if ($PSCmdlet.ShouldProcess("Remove package $packageName from $xmlPath")) {
                         Write-InstallLog -text "Package $packageName will be removed" -Info
                         $package.ParentNode.RemoveChild($package) | Out-Null
@@ -1003,6 +1042,12 @@ function Set-AutodeskDeployment {
             }
         }
 
+    }
+
+    foreach ($name in $Remove) {
+        if (-not $removeMatched.ContainsKey($name)) {
+            Write-InstallLog -text "No entry matching '$name' found to remove in $($xmlFileName -join ', ')" -Info
+        }
     }
 
     # no begin/process/end blocks needed
@@ -2065,6 +2110,9 @@ function Mount-DeploymentImage {
         cache is populated and the mount reference is stored in $script:InspectMount so that
         Invoke-DeploymentWorkflow can dismount it in its finally block.
 
+        The deployment config files (Collection.xml) are not required to mount: they are only checked by
+        Install-AutodeskDeployment, so images without an Autodesk deployment can be mounted too.
+
     .PARAMETER File
         System.IO.FileInfo or String (full path) of the image file.
 
@@ -2150,14 +2198,7 @@ function Mount-DeploymentImage {
                 }
                 Write-InstallLog -text "Image $($File.FullName) mounted to $Path" -Info
             }
-
-            # check if configfile exists
-            foreach ($ConfigFullFilename in $ConfigFullFilenames) {
-                if (-not [System.IO.File]::Exists($ConfigFullFilename)) {
-                    Write-InstallLog -text "ConfigFile $ConfigFullFilename does not exist" -Fail
-                    throw "ConfigFile $ConfigFullFilename does not exist"
-                }
-            }
+            # config files are not checked here: only Install-AutodeskDeployment needs them
         }
         catch {
             # every following step needs the mount: HardAbort stops the workflow instead of the ModeHandler trap continuing

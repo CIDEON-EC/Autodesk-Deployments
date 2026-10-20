@@ -632,6 +632,9 @@ Invoke-DeploymentWorkflow -ModeHandler {
             # Mount image (in WhatIf mode: read-only inspection mount)
             Mount-DeploymentImage
 
+            # optional: install Vault without Vault Data Standard (removes the application from the product's setup.xml)
+            # Set-AutodeskDeployment -Remove 'Vault Data Standard'
+
             # install autodesk software
             Install-AutodeskDeployment
 

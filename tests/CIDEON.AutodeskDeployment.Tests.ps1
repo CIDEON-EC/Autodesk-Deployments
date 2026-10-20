@@ -307,6 +307,91 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
+        It 'removes an Application entry from setup.xml by default (namespaced, setup_ext.xml absent)' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup.xml'
+                @'
+<Bundle xmlns="https://emsfs.autodesk.com/schema/manifest/1/0">
+    <Applications>
+        <Application sequence="1" name="Vault Professional 2026 (Client)" />
+        <Application sequence="2" name="Vault Data Standard 2026" />
+    </Applications>
+</Bundle>
+'@ | Set-Content -Path $xmlPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Set-AutodeskDeployment -Path $TestDrive -Remove 'Vault Data Standard'
+
+                $names = @(([xml](Get-Content $xmlPath)).Bundle.Applications.Application.name)
+                $names | Should -Be @('Vault Professional 2026 (Client)')
+            }
+        }
+
+        It 'logs when a -Remove pattern matches nothing' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_nomatch.xml'
+                '<Bundle><Applications><Application name="Keep" /></Applications></Bundle>' | Set-Content -Path $xmlPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'setup_nomatch.xml' -Remove 'Nope'
+
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like "No entry matching 'Nope'*" }
+            }
+        }
+
+        It 'does nothing and logs a note when neither -Language nor -Remove is given' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_noop.xml'
+                'this is not xml' | Set-Content -Path $xmlPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'setup_noop.xml' } | Should -Not -Throw
+
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like 'Nothing to do*' }
+            }
+        }
+
+        It 'rejects an xmlFileName that contains a path' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                { Set-AutodeskDeployment -Path $TestDrive -xmlFileName '..\evil.xml' -Remove 'x' } | Should -Throw
+                { Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'C:\evil.xml' -Remove 'x' } | Should -Throw
+            }
+        }
+
+        It 'logs a failure for an unreadable xml file and still processes the next file' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                'this is not xml' | Set-Content -Path (Join-Path $TestDrive 'bad.xml')
+                $goodPath = Join-Path $TestDrive 'good.xml'
+                '<Bundle><Package name="RemoveMe" /><Package name="KeepMe" /></Bundle>' | Set-Content -Path $goodPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                { Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'bad.xml', 'good.xml' -Remove 'RemoveMe' } | Should -Not -Throw
+
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like '*bad.xml*' -and $Fail.IsPresent }
+                @(([xml](Get-Content $goodPath)).Bundle.Package.name) | Should -Be @('KeepMe')
+            }
+        }
+
+        It 'never removes a core application, even when the -Remove pattern matches it' {
+            InModuleScope CIDEON.AutodeskDeployment {
+                $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_core.xml'
+                @'
+<Bundle>
+    <Applications>
+        <Application installAs="core" name="Vault Professional 2026 (Client)" />
+        <Application installAs="optional" name="Vault Data Standard 2026" />
+    </Applications>
+</Bundle>
+'@ | Set-Content -Path $xmlPath
+                Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
+
+                Set-AutodeskDeployment -Path $TestDrive -xmlFileName 'setup_core.xml' -Remove 'Vault'
+
+                @(([xml](Get-Content $xmlPath)).Bundle.Applications.Application.name) | Should -Be @('Vault Professional 2026 (Client)')
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like '*core*Vault Professional*' }
+            }
+        }
+
         It 'leaves the xml file unchanged under -WhatIf' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $xmlPath = Join-Path -Path $TestDrive -ChildPath 'setup_whatif.xml'
@@ -339,7 +424,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 $WhatIfPreference = $originalWhatIf
             }
         }
-        It 'mounts the WIM and validates required config files in normal mode' {
+        It 'mounts the WIM in normal mode' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $configPath = Join-Path -Path $TestDrive -ChildPath 'Collection.xml'
                 Set-Content -Path $configPath -Value '<Collection />'
@@ -357,7 +442,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
             }
         }
 
-        It 'throws when a required config file is missing after mount' {
+        It 'does not require a config file to mount (images without Autodesk deployment)' {
             InModuleScope CIDEON.AutodeskDeployment {
                 $missingConfigPath = Join-Path -Path $TestDrive -ChildPath 'MissingCollection.xml'
                 $Global:ConfigFullFilenames = @($missingConfigPath)
@@ -366,7 +451,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Mount-WindowsImage -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
                 Mock -CommandName Write-InstallLog -MockWith {} -ModuleName 'CIDEON.AutodeskDeployment'
 
-                { Mount-DeploymentImage -File $fileObj -Path 'C:\fakeMount' } | Should -Throw '*ConfigFile*does not exist*'
+                { Mount-DeploymentImage -File $fileObj -Path 'C:\fakeMount' } | Should -Not -Throw
             }
         }
 
@@ -580,9 +665,7 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Test-Path -MockWith { $true } -ModuleName 'CIDEON.AutodeskDeployment'
 
                 try {
-                    # the config file does not exist on the fake drive: the error message proves the path was re-pointed to the drive letter
-                    { Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount' } |
-                        Should -Throw '*E:\Image\Collection.xml does not exist*'
+                    Mount-DeploymentImage -File ([pscustomobject]@{ FullName = 'C:\fake.vhdx' }) -Path 'C:\fakeMount'
 
                     Should -Invoke Mount-DiskImage -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter {
                         $ImagePath -eq 'C:\fake.vhdx' -and -not $NoDriveLetter -and $Access -eq 'ReadWrite'
@@ -728,6 +811,9 @@ Describe 'CIDEON.AutodeskDeployment.psm1' -Tag 'Unit' {
                 Mock -CommandName Get-Content -MockWith { [xml]'<Collection/>' } -ModuleName 'CIDEON.AutodeskDeployment'
 
                 { Install-AutodeskDeployment -Path 'C:\\noimage' -WhatIf:$false } | Should -Not -Throw
+
+                Should -Invoke Write-InstallLog -Times 1 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -like 'No Autodesk deployment was installed*' -and $Fail.IsPresent }
+                Should -Invoke Write-InstallLog -Times 0 -Exactly -ModuleName 'CIDEON.AutodeskDeployment' -ParameterFilter { $text -eq 'Autodesk Products installed' }
             }
         }
 

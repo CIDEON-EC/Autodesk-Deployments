@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [3.1.0] - 2026-10-20
+### Added
+- `Set-AutodeskDeployment -Remove` also removes `<Application>` entries of `setup.xml` (name pattern, namespace independent), so a product can be installed without Vault Data Standard: `Set-AutodeskDeployment -Remove 'Vault Data Standard'` (example in `Install-ADSK.ps1`). It logs a note when a pattern matches nothing.
+### Changed
+- `Set-AutodeskDeployment -xmlFileName` is now a list and defaults to `setup_ext.xml` and `setup.xml`; a file missing in a product folder is skipped (previously a missing file caused an error).
+- `Set-AutodeskDeployment` checks its input: it does nothing (and logs a note) without `-Language`/`-Remove`, rejects an `-xmlFileName` that contains a path, logs a failure and continues with the next file when an XML file cannot be read, and never removes an `<Application installAs="core">` entry (logged as kept).
+- `Install-AutodeskDeployment` logs a failure instead of `Autodesk Products installed` when no config file was found.
+- `Mount-DeploymentImage` no longer requires the config files (`Collection.xml`) and does not stop the workflow when they are missing, so images without an Autodesk deployment can be installed. The config files are only checked by `Install-AutodeskDeployment` (logs the missing file and skips it).
+
 ## [3.0.0] - 2026-10-20
 ### Security
 - `Copy-Local.ps1` now pins the release certificate and the module signer to the same thumbprint allowlist as `Install-ADSK.ps1` (previously it only checked for `Status -eq Valid`, so any certificate from the release could be added to `CurrentUser\TrustedPublisher` and any validly signed module was imported). The downloaded certificate is checked before it is added to the store; the local fallback module is checked the same way. If the certificate cannot be added to the store, a `NotTrusted`/`UnknownError` chain is accepted only when the signer thumbprint is pinned; `HashMismatch` is always rejected.
